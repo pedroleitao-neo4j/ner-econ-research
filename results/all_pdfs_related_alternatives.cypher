@@ -12,8 +12,6 @@ CREATE CONSTRAINT IF NOT EXISTS FOR (e:Excerpt)      REQUIRE e.excerpt_key IS UN
 CREATE CONSTRAINT IF NOT EXISTS FOR (pr:Person)        REQUIRE pr.unique_key IS UNIQUE;
 CREATE CONSTRAINT IF NOT EXISTS FOR (g:Organization)   REQUIRE g.unique_key IS UNIQUE;
 CREATE CONSTRAINT IF NOT EXISTS FOR (l:Location)       REQUIRE l.unique_key IS UNIQUE;
-CREATE CONSTRAINT IF NOT EXISTS FOR (af:Affiliation)   REQUIRE af.unique_key IS UNIQUE;
-CREATE CONSTRAINT IF NOT EXISTS FOR (au:Author)        REQUIRE au.unique_key IS UNIQUE;
 
 /// ---- Full-text indexes (Neo4j 5 syntax) ----
 CREATE FULLTEXT INDEX intervention_text_fts IF NOT EXISTS
@@ -53,14 +51,6 @@ CREATE FULLTEXT INDEX location_text_fts IF NOT EXISTS
 FOR (l:Location) ON EACH [l.text]
 OPTIONS { indexConfig: { `fulltext.analyzer`: 'english', `fulltext.eventually_consistent`: true } };
 
-CREATE FULLTEXT INDEX affiliation_text_fts IF NOT EXISTS
-FOR (af:Affiliation) ON EACH [af.text]
-OPTIONS { indexConfig: { `fulltext.analyzer`: 'english', `fulltext.eventually_consistent`: true } };
-
-CREATE FULLTEXT INDEX author_text_fts IF NOT EXISTS
-FOR (au:Author) ON EACH [au.text]
-OPTIONS { indexConfig: { `fulltext.analyzer`: 'english', `fulltext.eventually_consistent`: true } };
-
 /// ---- Param for the CSV file name ----
 :param csvFile => 'all_pdfs_related_alternatives.csv';
 
@@ -85,14 +75,12 @@ WITH
   // New optional entity fields
   trim(coalesce(row.per,''))          AS per_text,
   trim(coalesce(row.org,''))          AS org_text,
-  trim(coalesce(row.loc,''))          AS loc_text,
-  trim(coalesce(row.affiliation,''))  AS affiliation_text,
-  trim(coalesce(row.author,''))       AS author_text
+  trim(coalesce(row.loc,''))          AS loc_text
   ,  trim(coalesce(row.org_alternative,'')) AS org_alt_text,  trim(coalesce(row.loc_alternative,'')) AS loc_alt_text,  trim(coalesce(row.per_alternative,'')) AS per_alt_text,  trim(coalesce(row.subject_text_alternative,'')) AS subject_text_alt_text
 
 WITH
   row, s_type, o_type, rel_lc, s_text, o_text, file, title, textBlock, effect_size, page, avg_confidence,
-  per_text, org_text, loc_text, affiliation_text, author_text,
+  per_text, org_text, loc_text,
   org_alt_text, loc_alt_text, per_alt_text, subject_text_alt_text, 
   CASE
     WHEN page = '' THEN NULL
@@ -105,11 +93,7 @@ WITH
   // New entity lists (split on ';' and trim; ignore empty parts)
   CASE WHEN per_text = '' THEN [] ELSE [t IN split(per_text, ';') WHERE trim(t) <> '' | trim(t)] END AS per_list,
   CASE WHEN org_text = '' THEN [] ELSE [t IN split(org_text, ';') WHERE trim(t) <> '' | trim(t)] END AS org_list,
-  CASE WHEN loc_text = '' THEN [] ELSE [t IN split(loc_text, ';') WHERE trim(t) <> '' | trim(t)] END AS loc_list,
-    CASE WHEN org_alt_text = '' THEN [] ELSE [t IN split(org_alt_text, ';') | trim(t)] END AS org_alt_list,  CASE WHEN loc_alt_text = '' THEN [] ELSE [t IN split(loc_alt_text, ';') | trim(t)] END AS loc_alt_list,  CASE WHEN per_alt_text = '' THEN [] ELSE [t IN split(per_alt_text, ';') | trim(t)] END AS per_alt_list,  CASE WHEN subject_text_alt_text = '' THEN [] ELSE [t IN split(subject_text_alt_text, ';') | trim(t)] END AS subject_text_alt_list,
-  // Keep single-value keys for others
-  CASE WHEN affiliation_text <> '' THEN 'affiliation|'  + toLower(affiliation_text) ELSE NULL END AS affiliation_key,
-  CASE WHEN author_text      <> '' THEN 'author|'       + toLower(author_text)      ELSE NULL END AS author_key
+  CASE WHEN loc_text = '' THEN [] ELSE [t IN split(loc_text, ';') WHERE trim(t) <> '' | trim(t)] END AS loc_list,  CASE WHEN org_alt_text = '' THEN [] ELSE [t IN split(org_alt_text, ';') | trim(t)] END AS org_alt_list,  CASE WHEN loc_alt_text = '' THEN [] ELSE [t IN split(loc_alt_text, ';') | trim(t)] END AS loc_alt_list,  CASE WHEN per_alt_text = '' THEN [] ELSE [t IN split(per_alt_text, ';') | trim(t)] END AS per_alt_list,  CASE WHEN subject_text_alt_text = '' THEN [] ELSE [t IN split(subject_text_alt_text, ';') | trim(t)] END AS subject_text_alt_list
 
 // Document & Excerpt (provenance)
 MERGE (d:Document {doc_key: doc_key})
@@ -127,30 +111,6 @@ MERGE (x:Excerpt {excerpt_key: excerpt_key})
     x.page = page_int
 
 MERGE (d)-[:HAS_EXCERPT]->(x)
-
-FOREACH (_ IN CASE WHEN affiliation_text <> '' THEN [1] ELSE [] END |
-  MERGE (af:Affiliation {unique_key: affiliation_key})
-    ON CREATE SET
-      af.file = file,
-      af.title = affiliation_text,
-      af.text = affiliation_text,
-      af.type = 'affiliation',
-      af.page = page_int
-  MERGE (af)-[maf:MENTIONED_IN]->(x)
-    ON CREATE SET maf.file = file, maf.title = title, maf.page = page_int
-)
-
-FOREACH (_ IN CASE WHEN author_text <> '' THEN [1] ELSE [] END |
-  MERGE (au:Author {unique_key: author_key})
-    ON CREATE SET
-      au.file = file,
-      au.title = author_text,
-      au.text = author_text,
-      au.type = 'author',
-      au.page = page_int
-  MERGE (au)-[mau:MENTIONED_IN]->(x)
-    ON CREATE SET mau.file = file, mau.title = title, mau.page = page_int
-)
 
 // Persons, Organizations, Locations extracted from lists
 FOREACH (i IN CASE WHEN size(per_list) > 0 THEN range(0, size(per_list)-1) ELSE [] END |
@@ -269,9 +229,35 @@ FOREACH (_ IN CASE WHEN o_type = 'coreference' THEN [1] ELSE [] END |
 )
 
 // Get references to subject and object nodes for relationships
-WITH row, s_type, o_type, rel_lc, s_key, o_key, file, title, textBlock, effect_size, page, page_int, avg_confidence, d, x
+WITH row, s_type, o_type, rel_lc, s_key, o_key, file, title, textBlock, effect_size, page, page_int, avg_confidence, d, x, subject_text_alt_list
 OPTIONAL MATCH (s) WHERE s.unique_key = s_key
 OPTIONAL MATCH (o) WHERE o.unique_key = o_key
+
+
+// Subject alternatives from subject_text alternative list
+FOREACH (alt IN CASE WHEN size(subject_text_alt_list) > 0 THEN subject_text_alt_list ELSE [] END |
+  FOREACH (_ IN CASE WHEN s_type = 'intervention' THEN [1] ELSE [] END |
+    MERGE (alt_s:Intervention {unique_key: 'intervention|' + toLower(alt)})
+      ON CREATE SET alt_s.file = file, alt_s.title = alt, alt_s.text = alt, alt_s.type = 'intervention', alt_s.page = page_int
+    MERGE (s)-[:HAS_ALTERNATIVE]->(alt_s)
+  )
+  FOREACH (_ IN CASE WHEN s_type = 'outcome' THEN [1] ELSE [] END |
+    MERGE (alt_s:Outcome {unique_key: 'outcome|' + toLower(alt)})
+      ON CREATE SET alt_s.file = file, alt_s.title = alt, alt_s.text = alt, alt_s.type = 'outcome', alt_s.page = page_int
+    MERGE (s)-[:HAS_ALTERNATIVE]->(alt_s)
+  )
+  FOREACH (_ IN CASE WHEN s_type = 'population' THEN [1] ELSE [] END |
+    MERGE (alt_s:Population {unique_key: 'population|' + toLower(alt)})
+      ON CREATE SET alt_s.file = file, alt_s.title = alt, alt_s.text = alt, alt_s.type = 'population', alt_s.page = page_int
+    MERGE (s)-[:HAS_ALTERNATIVE]->(alt_s)
+  )
+  FOREACH (_ IN CASE WHEN s_type = 'coreference' THEN [1] ELSE [] END |
+    MERGE (alt_s:Coreference {unique_key: 'coreference|' + toLower(alt)})
+      ON CREATE SET alt_s.file = file, alt_s.title = alt, alt_s.text = alt, alt_s.type = 'coreference', alt_s.page = page_int
+    MERGE (s)-[:HAS_ALTERNATIVE]->(alt_s)
+  )
+)
+
 
 // Provenance mentions
 MERGE (s)-[ms:MENTIONED_IN]->(x)

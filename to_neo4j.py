@@ -56,6 +56,37 @@ class CypherFromTripletsWithFTS:
     MERGE (l)-[:{self.args.alternative_relationship_type}]->(alt_l)
   )"""
 
+        # Subject alternatives plumbing
+        subject_alt_with = ""
+        subject_alt_block = ""
+        if self.args.add_alternative_columns and 'subject_text' in self.args.add_alternative_columns:
+            subject_alt_with = ", subject_text_alt_list"
+            subject_alt_block = f"""
+// Subject alternatives from subject_text alternative list
+FOREACH (alt IN CASE WHEN size(subject_text_alt_list) > 0 THEN subject_text_alt_list ELSE [] END |
+  FOREACH (_ IN CASE WHEN s_type = 'intervention' THEN [1] ELSE [] END |
+    MERGE (alt_s:Intervention {{unique_key: 'intervention|' + toLower(alt)}})
+      ON CREATE SET alt_s.file = file, alt_s.title = alt, alt_s.text = alt, alt_s.type = 'intervention', alt_s.page = page_int
+    MERGE (s)-[:{self.args.alternative_relationship_type}]->(alt_s)
+  )
+  FOREACH (_ IN CASE WHEN s_type = 'outcome' THEN [1] ELSE [] END |
+    MERGE (alt_s:Outcome {{unique_key: 'outcome|' + toLower(alt)}})
+      ON CREATE SET alt_s.file = file, alt_s.title = alt, alt_s.text = alt, alt_s.type = 'outcome', alt_s.page = page_int
+    MERGE (s)-[:{self.args.alternative_relationship_type}]->(alt_s)
+  )
+  FOREACH (_ IN CASE WHEN s_type = 'population' THEN [1] ELSE [] END |
+    MERGE (alt_s:Population {{unique_key: 'population|' + toLower(alt)}})
+      ON CREATE SET alt_s.file = file, alt_s.title = alt, alt_s.text = alt, alt_s.type = 'population', alt_s.page = page_int
+    MERGE (s)-[:{self.args.alternative_relationship_type}]->(alt_s)
+  )
+  FOREACH (_ IN CASE WHEN s_type = 'coreference' THEN [1] ELSE [] END |
+    MERGE (alt_s:Coreference {{unique_key: 'coreference|' + toLower(alt)}})
+      ON CREATE SET alt_s.file = file, alt_s.title = alt, alt_s.text = alt, alt_s.type = 'coreference', alt_s.page = page_int
+    MERGE (s)-[:{self.args.alternative_relationship_type}]->(alt_s)
+  )
+)
+"""
+
         return f"""// Auto-generated Cypher import script with Full-Text Indexes (Neo4j 5)
 // Place {self.args.csv_basename} into Neo4j's import/ directory.
 
@@ -272,9 +303,11 @@ FOREACH (_ IN CASE WHEN o_type = 'coreference' THEN [1] ELSE [] END |
 )
 
 // Get references to subject and object nodes for relationships
-WITH row, s_type, o_type, rel_lc, s_key, o_key, file, title, textBlock, effect_size, page, page_int, avg_confidence, d, x
+WITH row, s_type, o_type, rel_lc, s_key, o_key, file, title, textBlock, effect_size, page, page_int, avg_confidence, d, x{subject_alt_with}
 OPTIONAL MATCH (s) WHERE s.unique_key = s_key
 OPTIONAL MATCH (o) WHERE o.unique_key = o_key
+
+{subject_alt_block}
 
 // Provenance mentions
 MERGE (s)-[ms:MENTIONED_IN]->(x)
@@ -295,46 +328,6 @@ FOREACH (_ IN CASE WHEN rel_lc = 'impacts' THEN [1] ELSE [] END |
       r.effect_size = CASE WHEN effect_size = '' THEN NULL ELSE effect_size END,
       r.avg_confidence = avg_confidence,
       r.file = file,
-      r.title = title,
-      r.page = page_int
-)
-FOREACH (_ IN CASE WHEN rel_lc = 'applies_to' THEN [1] ELSE [] END |
-  MERGE (s)-[r:APPLIES_TO]->(o)
-    ON CREATE SET
-      r.effect_size = CASE WHEN effect_size = '' THEN NULL ELSE effect_size END,
-      r.avg_confidence = avg_confidence, r.file = file, r.title = title,
-      r.page = page_int
-)
-FOREACH (_ IN CASE WHEN rel_lc = 'experienced_by' THEN [1] ELSE [] END |
-  MERGE (s)-[r:EXPERIENCED_BY]->(o)
-    ON CREATE SET
-      r.effect_size = CASE WHEN effect_size = '' THEN NULL ELSE effect_size END,
-      r.avg_confidence = avg_confidence, r.file = file, r.title = title,
-      r.page = page_int
-);
-"""
-
-    def generate(self) -> None:
-        self.args.csv_basename = os.path.basename(self.args.input_csv)
-        with open(self.args.output_cypher, "w", encoding="utf-8") as f:
-            f.write(self._script())
-
-if __name__ == "__main__":
-    parser = argparse.ArgumentParser(description="""
-        Generate a Cypher import script (with Neo4j 5 full-text indexes) from a triplets CSV.
-        Usage:
-          python cypher_from_triplets_fts.py --input_csv triplets.csv --output_cypher import_triplets.cypher
-    """.strip())
-    parser.add_argument("--input_csv", type=str, required=True, help="Path to the triplets CSV.")
-    parser.add_argument("--output_cypher", type=str, default="import_triplets.cypher", help="Output Cypher script path.")
-    parser.add_argument("--alternative_suffix", type=str, required=False, default="_alternative", help="Suffix for alternative column names (default: '_alternative').")
-    parser.add_argument("--add_alternative_columns", type=str, required=False, nargs='+', help="List of columns to add alternatives columns for (optional).")
-    parser.add_argument("--alternative_relationship_type", type=str, required=False, default="HAS_ALTERNATIVE", help="Relationship type for alternatives (default: 'HAS_ALTERNATIVE').")
-    args = parser.parse_args()
-
-    gen = CypherFromTripletsWithFTS(args)
-    gen.generate()
-    print(f"Wrote {args.output_cypher}. Copy {os.path.basename(args.input_csv)} to Neo4j import/ and run the script.")
       r.title = title,
       r.page = page_int
 )
