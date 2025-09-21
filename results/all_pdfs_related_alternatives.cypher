@@ -88,7 +88,7 @@ WITH
   trim(coalesce(row.loc,''))          AS loc_text,
   trim(coalesce(row.affiliation,''))  AS affiliation_text,
   trim(coalesce(row.author,''))       AS author_text
-    trim(coalesce(row.org_alternative,'')) AS org_alt_text,  trim(coalesce(row.loc_alternative,'')) AS loc_alt_text,  trim(coalesce(row.per_alternative,'')) AS per_alt_text,  trim(coalesce(row.subject_text_alternative,'')) AS subject_text_alt_text
+  ,  trim(coalesce(row.org_alternative,'')) AS org_alt_text,  trim(coalesce(row.loc_alternative,'')) AS loc_alt_text,  trim(coalesce(row.per_alternative,'')) AS per_alt_text,  trim(coalesce(row.subject_text_alternative,'')) AS subject_text_alt_text
 
 WITH
   row, s_type, o_type, rel_lc, s_text, o_text, file, title, textBlock, effect_size, page, avg_confidence,

@@ -88,10 +88,12 @@ WITH
   trim(coalesce(row.loc,''))          AS loc_text,
   trim(coalesce(row.affiliation,''))  AS affiliation_text,
   trim(coalesce(row.author,''))       AS author_text
+  
 
 WITH
   row, s_type, o_type, rel_lc, s_text, o_text, file, title, textBlock, effect_size, page, avg_confidence,
   per_text, org_text, loc_text, affiliation_text, author_text,
+  
   CASE
     WHEN page = '' THEN NULL
     ELSE toInteger(page)
@@ -104,6 +106,7 @@ WITH
   CASE WHEN per_text = '' THEN [] ELSE [t IN split(per_text, ';') WHERE trim(t) <> '' | trim(t)] END AS per_list,
   CASE WHEN org_text = '' THEN [] ELSE [t IN split(org_text, ';') WHERE trim(t) <> '' | trim(t)] END AS org_list,
   CASE WHEN loc_text = '' THEN [] ELSE [t IN split(loc_text, ';') WHERE trim(t) <> '' | trim(t)] END AS loc_list,
+  
   // Keep single-value keys for others
   CASE WHEN affiliation_text <> '' THEN 'affiliation|'  + toLower(affiliation_text) ELSE NULL END AS affiliation_key,
   CASE WHEN author_text      <> '' THEN 'author|'       + toLower(author_text)      ELSE NULL END AS author_key
@@ -126,7 +129,9 @@ MERGE (x:Excerpt {excerpt_key: excerpt_key})
 MERGE (d)-[:HAS_EXCERPT]->(x)
 
 // Link optional entities to the excerpt via MENTIONED_IN
-FOREACH (per IN per_list |
+FOREACH (i IN range(0, size(per_list) - 1) |
+  WITH per_list[i] AS per, i, x, file, title, page_int, d, s_type, o_type, rel_lc, s_key, o_key, textBlock, effect_size, avg_confidence, s_text, o_text, doc_key, excerpt_key, per_list, org_list, loc_list, affiliation_text, author_text, page
+  
   MERGE (pr:Person {unique_key: 'person|' + toLower(per)})
     ON CREATE SET
       pr.file = file,
@@ -136,8 +141,11 @@ FOREACH (per IN per_list |
       pr.page = page_int
   MERGE (pr)-[mpr:MENTIONED_IN]->(x)
     ON CREATE SET mpr.file = file, mpr.title = title, mpr.page = page_int
+  
 )
-FOREACH (org IN org_list |
+FOREACH (i IN range(0, size(org_list) - 1) |
+  WITH org_list[i] AS org, i, x, file, title, page_int, d, s_type, o_type, rel_lc, s_key, o_key, textBlock, effect_size, avg_confidence, s_text, o_text, doc_key, excerpt_key, per_list, org_list, loc_list, affiliation_text, author_text, page
+  
   MERGE (g:Organization {unique_key: 'organization|' + toLower(org)})
     ON CREATE SET
       g.file = file,
@@ -147,8 +155,11 @@ FOREACH (org IN org_list |
       g.page = page_int
   MERGE (g)-[mg:MENTIONED_IN]->(x)
     ON CREATE SET mg.file = file, mg.title = title, mg.page = page_int
+  
 )
-FOREACH (loc IN loc_list |
+FOREACH (i IN range(0, size(loc_list) - 1) |
+  WITH loc_list[i] AS loc, i, x, file, title, page_int, d, s_type, o_type, rel_lc, s_key, o_key, textBlock, effect_size, avg_confidence, s_text, o_text, doc_key, excerpt_key, per_list, org_list, loc_list, affiliation_text, author_text, page
+  
   MERGE (l:Location {unique_key: 'location|' + toLower(loc)})
     ON CREATE SET
       l.file = file,
@@ -158,6 +169,7 @@ FOREACH (loc IN loc_list |
       l.page = page_int
   MERGE (l)-[ml:MENTIONED_IN]->(x)
     ON CREATE SET ml.file = file, ml.title = title, ml.page = page_int
+  
 )
 // Affiliation and Author unchanged
 FOREACH (_ IN CASE WHEN affiliation_text <> '' THEN [1] ELSE [] END |
