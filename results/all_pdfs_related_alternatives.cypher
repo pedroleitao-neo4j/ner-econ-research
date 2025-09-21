@@ -122,7 +122,7 @@ FOREACH (i IN CASE WHEN size(per_list) > 0 THEN range(0, size(per_list)-1) ELSE 
   FOREACH (alt_per IN CASE WHEN size(per_alt_list) > i AND per_alt_list[i] <> '' THEN [per_alt_list[i]] ELSE [] END |
     MERGE (alt_pr:Person {unique_key: 'person|' + toLower(alt_per)})
       ON CREATE SET alt_pr.file = file, alt_pr.title = alt_per, alt_pr.text = alt_per, alt_pr.type = 'person', alt_pr.page = page_int
-    MERGE (pr)-[:HAS_ALTERNATIVE]->(alt_pr)
+    MERGE (pr)-[:ALTERNATIVE_VOCABULARY]->(alt_pr)
   )
 )
 
@@ -135,7 +135,7 @@ FOREACH (i IN CASE WHEN size(org_list) > 0 THEN range(0, size(org_list)-1) ELSE 
   FOREACH (alt_org IN CASE WHEN size(org_alt_list) > i AND org_alt_list[i] <> '' THEN [org_alt_list[i]] ELSE [] END |
     MERGE (alt_g:Organization {unique_key: 'organization|' + toLower(alt_org)})
       ON CREATE SET alt_g.file = file, alt_g.title = alt_org, alt_g.text = alt_org, alt_g.type = 'organization', alt_g.page = page_int
-    MERGE (g)-[:HAS_ALTERNATIVE]->(alt_g)
+    MERGE (g)-[:ALTERNATIVE_VOCABULARY]->(alt_g)
   )
 )
 
@@ -148,7 +148,7 @@ FOREACH (i IN CASE WHEN size(loc_list) > 0 THEN range(0, size(loc_list)-1) ELSE 
   FOREACH (alt_loc IN CASE WHEN size(loc_alt_list) > i AND loc_alt_list[i] <> '' THEN [loc_alt_list[i]] ELSE [] END |
     MERGE (alt_l:Location {unique_key: 'location|' + toLower(alt_loc)})
       ON CREATE SET alt_l.file = file, alt_l.title = alt_loc, alt_l.text = alt_loc, alt_l.type = 'location', alt_l.page = page_int
-    MERGE (l)-[:HAS_ALTERNATIVE]->(alt_l)
+    MERGE (l)-[:ALTERNATIVE_VOCABULARY]->(alt_l)
   )
 )
 
@@ -239,22 +239,22 @@ FOREACH (alt IN CASE WHEN size(subject_text_alt_list) > 0 THEN subject_text_alt_
   FOREACH (_ IN CASE WHEN s_type = 'intervention' THEN [1] ELSE [] END |
     MERGE (alt_s:Intervention {unique_key: 'intervention|' + toLower(alt)})
       ON CREATE SET alt_s.file = file, alt_s.title = alt, alt_s.text = alt, alt_s.type = 'intervention', alt_s.page = page_int
-    MERGE (s)-[:HAS_ALTERNATIVE]->(alt_s)
+    MERGE (s)-[:ALTERNATIVE_VOCABULARY]->(alt_s)
   )
   FOREACH (_ IN CASE WHEN s_type = 'outcome' THEN [1] ELSE [] END |
     MERGE (alt_s:Outcome {unique_key: 'outcome|' + toLower(alt)})
       ON CREATE SET alt_s.file = file, alt_s.title = alt, alt_s.text = alt, alt_s.type = 'outcome', alt_s.page = page_int
-    MERGE (s)-[:HAS_ALTERNATIVE]->(alt_s)
+    MERGE (s)-[:ALTERNATIVE_VOCABULARY]->(alt_s)
   )
   FOREACH (_ IN CASE WHEN s_type = 'population' THEN [1] ELSE [] END |
     MERGE (alt_s:Population {unique_key: 'population|' + toLower(alt)})
       ON CREATE SET alt_s.file = file, alt_s.title = alt, alt_s.text = alt, alt_s.type = 'population', alt_s.page = page_int
-    MERGE (s)-[:HAS_ALTERNATIVE]->(alt_s)
+    MERGE (s)-[:ALTERNATIVE_VOCABULARY]->(alt_s)
   )
   FOREACH (_ IN CASE WHEN s_type = 'coreference' THEN [1] ELSE [] END |
     MERGE (alt_s:Coreference {unique_key: 'coreference|' + toLower(alt)})
       ON CREATE SET alt_s.file = file, alt_s.title = alt, alt_s.text = alt, alt_s.type = 'coreference', alt_s.page = page_int
-    MERGE (s)-[:HAS_ALTERNATIVE]->(alt_s)
+    MERGE (s)-[:ALTERNATIVE_VOCABULARY]->(alt_s)
   )
 )
 
