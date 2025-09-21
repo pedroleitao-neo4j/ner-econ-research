@@ -146,7 +146,7 @@ WITH
   trim(coalesce(row.loc,''))          AS loc_text,
   trim(coalesce(row.affiliation,''))  AS affiliation_text,
   trim(coalesce(row.author,''))       AS author_text
-  {''.join(alt_cols_cypher).rstrip(',')}
+  {',' if self.args.add_alternative_columns else ''}{''.join(alt_cols_cypher).rstrip(',')}
 
 WITH
   row, s_type, o_type, rel_lc, s_text, o_text, file, title, textBlock, effect_size, page, avg_confidence,
