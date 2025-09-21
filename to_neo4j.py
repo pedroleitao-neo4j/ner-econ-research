@@ -13,14 +13,51 @@ class CypherFromTripletsWithFTS:
       per,org,loc,affiliation,author
     """
 
-    def __init__(self, input_csv: str, output_cypher: str):
-        self.input_csv = input_csv
-        self.output_cypher = output_cypher
+    def __init__(self, args):
+        self.args = args
 
-    def _script(self, csv_basename: str) -> str:
+    def _script(self) -> str:
         # Note: Double braces {{ }} are used to emit single { } into the Cypher output from an f-string.
+
+        alt_cols_cypher = []
+        if self.args.add_alternative_columns:
+            for col in self.args.add_alternative_columns:
+                alt_cols_cypher.append(f"  trim(coalesce(row.{col}{self.args.alternative_suffix},'')) AS {col}_alt_text,")
+
+        alt_lists_cypher = []
+        if self.args.add_alternative_columns:
+            for col in self.args.add_alternative_columns:
+                alt_lists_cypher.append(f"  CASE WHEN {col}_alt_text = '' THEN [] ELSE [t IN split({col}_alt_text, ';') | trim(t)] END AS {col}_alt_list,")
+
+        per_alt_cypher = ""
+        if self.args.add_alternative_columns and 'per' in self.args.add_alternative_columns:
+            per_alt_cypher = f"""
+  FOREACH (alt_per IN CASE WHEN size(per_alt_list) > i AND per_alt_list[i] <> '' THEN [per_alt_list[i]] ELSE [] END |
+    MERGE (alt_pr:Person {{unique_key: 'person|' + toLower(alt_per)}})
+      ON CREATE SET alt_pr.file = file, alt_pr.title = alt_per, alt_pr.text = alt_per, alt_pr.type = 'person', alt_pr.page = page_int
+    MERGE (pr)-[:{self.args.alternative_relationship_type}]->(alt_pr)
+  )"""
+
+        org_alt_cypher = ""
+        if self.args.add_alternative_columns and 'org' in self.args.add_alternative_columns:
+            org_alt_cypher = f"""
+  FOREACH (alt_org IN CASE WHEN size(org_alt_list) > i AND org_alt_list[i] <> '' THEN [org_alt_list[i]] ELSE [] END |
+    MERGE (alt_g:Organization {{unique_key: 'organization|' + toLower(alt_org)}})
+      ON CREATE SET alt_g.file = file, alt_g.title = alt_org, alt_g.text = alt_org, alt_g.type = 'organization', alt_g.page = page_int
+    MERGE (g)-[:{self.args.alternative_relationship_type}]->(alt_g)
+  )"""
+
+        loc_alt_cypher = ""
+        if self.args.add_alternative_columns and 'loc' in self.args.add_alternative_columns:
+            loc_alt_cypher = f"""
+  FOREACH (alt_loc IN CASE WHEN size(loc_alt_list) > i AND loc_alt_list[i] <> '' THEN [loc_alt_list[i]] ELSE [] END |
+    MERGE (alt_l:Location {{unique_key: 'location|' + toLower(alt_loc)}})
+      ON CREATE SET alt_l.file = file, alt_l.title = alt_loc, alt_l.text = alt_loc, alt_l.type = 'location', alt_l.page = page_int
+    MERGE (l)-[:{self.args.alternative_relationship_type}]->(alt_l)
+  )"""
+
         return f"""// Auto-generated Cypher import script with Full-Text Indexes (Neo4j 5)
-// Place {csv_basename} into Neo4j's import/ directory.
+// Place {self.args.csv_basename} into Neo4j's import/ directory.
 
 /// ---- Constraints ----
 CREATE CONSTRAINT IF NOT EXISTS FOR (i:Intervention) REQUIRE i.unique_key IS UNIQUE;
@@ -83,7 +120,7 @@ FOR (au:Author) ON EACH [au.text]
 OPTIONS {{ indexConfig: {{ `fulltext.analyzer`: 'english', `fulltext.eventually_consistent`: true }} }};
 
 /// ---- Param for the CSV file name ----
-:param csvFile => '{csv_basename}';
+:param csvFile => '{self.args.csv_basename}';
 
 /// ---- Import pipeline ----
 LOAD CSV WITH HEADERS FROM 'file:///' + $csvFile AS row
@@ -109,10 +146,12 @@ WITH
   trim(coalesce(row.loc,''))          AS loc_text,
   trim(coalesce(row.affiliation,''))  AS affiliation_text,
   trim(coalesce(row.author,''))       AS author_text
+  {''.join(alt_cols_cypher).rstrip(',')}
 
 WITH
   row, s_type, o_type, rel_lc, s_text, o_text, file, title, textBlock, effect_size, page, avg_confidence,
   per_text, org_text, loc_text, affiliation_text, author_text,
+  { ''.join([f"{col}_alt_text, " for col in self.args.add_alternative_columns or []]) }
   CASE
     WHEN page = '' THEN NULL
     ELSE toInteger(page)
@@ -125,6 +164,7 @@ WITH
   CASE WHEN per_text = '' THEN [] ELSE [t IN split(per_text, ';') WHERE trim(t) <> '' | trim(t)] END AS per_list,
   CASE WHEN org_text = '' THEN [] ELSE [t IN split(org_text, ';') WHERE trim(t) <> '' | trim(t)] END AS org_list,
   CASE WHEN loc_text = '' THEN [] ELSE [t IN split(loc_text, ';') WHERE trim(t) <> '' | trim(t)] END AS loc_list,
+  {''.join(alt_lists_cypher).rstrip(',')}
   // Keep single-value keys for others
   CASE WHEN affiliation_text <> '' THEN 'affiliation|'  + toLower(affiliation_text) ELSE NULL END AS affiliation_key,
   CASE WHEN author_text      <> '' THEN 'author|'       + toLower(author_text)      ELSE NULL END AS author_key
@@ -147,7 +187,9 @@ MERGE (x:Excerpt {{excerpt_key: excerpt_key}})
 MERGE (d)-[:HAS_EXCERPT]->(x)
 
 // Link optional entities to the excerpt via MENTIONED_IN
-FOREACH (per IN per_list |
+FOREACH (i IN range(0, size(per_list) - 1) |
+  WITH per_list[i] AS per, i, x, file, title, page_int, d, s_type, o_type, rel_lc, s_key, o_key, textBlock, effect_size, avg_confidence, s_text, o_text, doc_key, excerpt_key, per_list, org_list, loc_list, affiliation_text, author_text, page
+  {', '.join([f"{col}_alt_list" for col in self.args.add_alternative_columns or []])}
   MERGE (pr:Person {{unique_key: 'person|' + toLower(per)}})
     ON CREATE SET
       pr.file = file,
@@ -157,8 +199,11 @@ FOREACH (per IN per_list |
       pr.page = page_int
   MERGE (pr)-[mpr:MENTIONED_IN]->(x)
     ON CREATE SET mpr.file = file, mpr.title = title, mpr.page = page_int
+  {per_alt_cypher}
 )
-FOREACH (org IN org_list |
+FOREACH (i IN range(0, size(org_list) - 1) |
+  WITH org_list[i] AS org, i, x, file, title, page_int, d, s_type, o_type, rel_lc, s_key, o_key, textBlock, effect_size, avg_confidence, s_text, o_text, doc_key, excerpt_key, per_list, org_list, loc_list, affiliation_text, author_text, page
+  {', '.join([f"{col}_alt_list" for col in self.args.add_alternative_columns or []])}
   MERGE (g:Organization {{unique_key: 'organization|' + toLower(org)}})
     ON CREATE SET
       g.file = file,
@@ -168,8 +213,11 @@ FOREACH (org IN org_list |
       g.page = page_int
   MERGE (g)-[mg:MENTIONED_IN]->(x)
     ON CREATE SET mg.file = file, mg.title = title, mg.page = page_int
+  {org_alt_cypher}
 )
-FOREACH (loc IN loc_list |
+FOREACH (i IN range(0, size(loc_list) - 1) |
+  WITH loc_list[i] AS loc, i, x, file, title, page_int, d, s_type, o_type, rel_lc, s_key, o_key, textBlock, effect_size, avg_confidence, s_text, o_text, doc_key, excerpt_key, per_list, org_list, loc_list, affiliation_text, author_text, page
+  {', '.join([f"{col}_alt_list" for col in self.args.add_alternative_columns or []])}
   MERGE (l:Location {{unique_key: 'location|' + toLower(loc)}})
     ON CREATE SET
       l.file = file,
@@ -179,6 +227,7 @@ FOREACH (loc IN loc_list |
       l.page = page_int
   MERGE (l)-[ml:MENTIONED_IN]->(x)
     ON CREATE SET ml.file = file, ml.title = title, ml.page = page_int
+  {loc_alt_cypher}
 )
 // Affiliation and Author unchanged
 FOREACH (_ IN CASE WHEN affiliation_text <> '' THEN [1] ELSE [] END |
@@ -324,11 +373,11 @@ FOREACH (_ IN CASE WHEN rel_lc = 'experienced_by' THEN [1] ELSE [] END |
 """
 
     def generate(self) -> None:
-        csv_basename = os.path.basename(self.input_csv)
-        with open(self.output_cypher, "w", encoding="utf-8") as f:
-            f.write(self._script(csv_basename))
+        self.args.csv_basename = os.path.basename(self.args.input_csv)
+        with open(self.args.output_cypher, "w", encoding="utf-8") as f:
+            f.write(self._script())
 
-def main():
+if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="""
         Generate a Cypher import script (with Neo4j 5 full-text indexes) from a triplets CSV.
         Usage:
@@ -336,13 +385,11 @@ def main():
     """.strip())
     parser.add_argument("--input_csv", type=str, required=True, help="Path to the triplets CSV.")
     parser.add_argument("--output_cypher", type=str, default="import_triplets.cypher", help="Output Cypher script path.")
+    parser.add_argument("--alternative_suffix", type=str, required=False, default="_alternative", help="Suffix for alternative column names (default: '_alternative').")
+    parser.add_argument("--add_alternative_columns", type=str, required=False, nargs='+', help="List of columns to add alternatives columns for (optional).")
+    parser.add_argument("--alternative_relationship_type", type=str, required=False, default="HAS_ALTERNATIVE", help="Relationship type for alternatives (default: 'HAS_ALTERNATIVE').")
     args = parser.parse_args()
 
-    gen = CypherFromTripletsWithFTS(args.input_csv, args.output_cypher)
+    gen = CypherFromTripletsWithFTS(args)
     gen.generate()
     print(f"Wrote {args.output_cypher}. Copy {os.path.basename(args.input_csv)} to Neo4j import/ and run the script.")
-
-if __name__ == "__main__":
-    main()
-if __name__ == "__main__":
-    main()
