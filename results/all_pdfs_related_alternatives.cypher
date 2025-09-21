@@ -139,6 +139,7 @@ FOREACH (_ IN CASE WHEN affiliation_text <> '' THEN [1] ELSE [] END |
   MERGE (af)-[maf:MENTIONED_IN]->(x)
     ON CREATE SET maf.file = file, maf.title = title, maf.page = page_int
 )
+
 FOREACH (_ IN CASE WHEN author_text <> '' THEN [1] ELSE [] END |
   MERGE (au:Author {unique_key: author_key})
     ON CREATE SET
@@ -149,6 +150,46 @@ FOREACH (_ IN CASE WHEN author_text <> '' THEN [1] ELSE [] END |
       au.page = page_int
   MERGE (au)-[mau:MENTIONED_IN]->(x)
     ON CREATE SET mau.file = file, mau.title = title, mau.page = page_int
+)
+
+// Persons, Organizations, Locations extracted from lists
+FOREACH (i IN CASE WHEN size(per_list) > 0 THEN range(0, size(per_list)-1) ELSE [] END |
+  MERGE (pr:Person {unique_key: 'person|' + toLower(per_list[i])})
+    ON CREATE SET pr.file = file, pr.title = per_list[i], pr.text = per_list[i], pr.type = 'person', pr.page = page_int
+  MERGE (pr)-[mpr:MENTIONED_IN]->(x)
+    ON CREATE SET mpr.file = file, mpr.title = title, mpr.page = page_int
+  
+  FOREACH (alt_per IN CASE WHEN size(per_alt_list) > i AND per_alt_list[i] <> '' THEN [per_alt_list[i]] ELSE [] END |
+    MERGE (alt_pr:Person {unique_key: 'person|' + toLower(alt_per)})
+      ON CREATE SET alt_pr.file = file, alt_pr.title = alt_per, alt_pr.text = alt_per, alt_pr.type = 'person', alt_pr.page = page_int
+    MERGE (pr)-[:HAS_ALTERNATIVE]->(alt_pr)
+  )
+)
+
+FOREACH (i IN CASE WHEN size(org_list) > 0 THEN range(0, size(org_list)-1) ELSE [] END |
+  MERGE (g:Organization {unique_key: 'organization|' + toLower(org_list[i])})
+    ON CREATE SET g.file = file, g.title = org_list[i], g.text = org_list[i], g.type = 'organization', g.page = page_int
+  MERGE (g)-[mg:MENTIONED_IN]->(x)
+    ON CREATE SET mg.file = file, mg.title = title, mg.page = page_int
+  
+  FOREACH (alt_org IN CASE WHEN size(org_alt_list) > i AND org_alt_list[i] <> '' THEN [org_alt_list[i]] ELSE [] END |
+    MERGE (alt_g:Organization {unique_key: 'organization|' + toLower(alt_org)})
+      ON CREATE SET alt_g.file = file, alt_g.title = alt_org, alt_g.text = alt_org, alt_g.type = 'organization', alt_g.page = page_int
+    MERGE (g)-[:HAS_ALTERNATIVE]->(alt_g)
+  )
+)
+
+FOREACH (i IN CASE WHEN size(loc_list) > 0 THEN range(0, size(loc_list)-1) ELSE [] END |
+  MERGE (l:Location {unique_key: 'location|' + toLower(loc_list[i])})
+    ON CREATE SET l.file = file, l.title = loc_list[i], l.text = loc_list[i], l.type = 'location', l.page = page_int
+  MERGE (l)-[ml:MENTIONED_IN]->(x)
+    ON CREATE SET ml.file = file, ml.title = title, ml.page = page_int
+  
+  FOREACH (alt_loc IN CASE WHEN size(loc_alt_list) > i AND loc_alt_list[i] <> '' THEN [loc_alt_list[i]] ELSE [] END |
+    MERGE (alt_l:Location {unique_key: 'location|' + toLower(alt_loc)})
+      ON CREATE SET alt_l.file = file, alt_l.title = alt_loc, alt_l.text = alt_loc, alt_l.type = 'location', alt_l.page = page_int
+    MERGE (l)-[:HAS_ALTERNATIVE]->(alt_l)
+  )
 )
 
 // Subject Node (direct type creation)
