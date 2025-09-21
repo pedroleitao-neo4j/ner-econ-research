@@ -5,6 +5,12 @@ from rdflib import Graph, Namespace
 from typing import Dict, List, Set
 import sys
 import logging
+import urllib.request
+import urllib.parse
+import io
+import gzip
+import zipfile
+from rdflib.util import guess_format
 
 # Define SKOS namespace
 SKOS = Namespace("http://www.w3.org/2004/02/skos/core#")
@@ -20,19 +26,84 @@ def _norm(text: str) -> str:
     """
     return text.strip().casefold()
 
-def load_skos_mappings(skos_file: str) -> Dict[str, str]:
+def _download_and_extract(url: str) -> tuple[bytes, str]:
     """
-    Load SKOS RDF file and create bidirectional mapping between preferred and alternative labels.
+    Download a URL and, if it's a .gz or .zip, return the decompressed RDF bytes and an inner filename
+    used to guess format. Otherwise return the raw bytes and the URL's basename.
+    """
+    with urllib.request.urlopen(url) as resp:
+        content = resp.read()
+    lower = url.lower()
+    basename = urllib.parse.urlparse(url).path.rsplit("/", 1)[-1]
+
+    if lower.endswith(".gz"):
+        data = gzip.decompress(content)
+        inner_name = basename[:-3] if basename.endswith(".gz") else basename
+        logger.info(f"Decompressed gzip from URL, inner name: {inner_name}")
+        return data, inner_name
+
+    if lower.endswith(".zip"):
+        with zipfile.ZipFile(io.BytesIO(content)) as zf:
+            preferred_ext = (".ttl", ".rdf", ".owl", ".nt", ".n3", ".xml", ".trig", ".nq")
+            inner_name = None
+            # pick the first file matching preferred extensions
+            for ext in preferred_ext:
+                for zi in zf.infolist():
+                    if not zi.is_dir() and zi.filename.lower().endswith(ext):
+                        inner_name = zi.filename
+                        break
+                if inner_name:
+                    break
+            # fallback: first non-directory entry
+            if not inner_name:
+                for zi in zf.infolist():
+                    if not zi.is_dir():
+                        inner_name = zi.filename
+                        break
+            if not inner_name:
+                raise ValueError("ZIP archive contains no files")
+            logger.info(f"Selected '{inner_name}' from ZIP archive")
+            data = zf.read(inner_name)
+            return data, inner_name
+
+    # not compressed
+    return content, basename
+
+def load_skos_mappings(skos_url: str) -> Dict[str, str]:
+    """
+    Load SKOS RDF from a URL and create bidirectional mapping between preferred and alternative labels.
+    The URL can point to a plain RDF file, a .gz file, or a .zip containing an RDF file.
     
     Args:
-        skos_file: Path to SKOS RDF file
+        skos_url: URL to SKOS RDF (plain, .gz, or .zip)
         
     Returns:
         Dictionary mapping terms (case-insensitive) to their alternative terms (English)
     """
     g = Graph()
-    g.parse(skos_file)
-    
+
+    # If compressed, download and parse from bytes; otherwise let rdflib fetch the URL directly.
+    if skos_url.lower().endswith((".gz", ".zip")):
+        data, inner_name = _download_and_extract(skos_url)
+        fmt = guess_format(inner_name or skos_url) or "xml"
+        try:
+            g.parse(source=io.BytesIO(data), format=fmt)
+        except Exception as e:
+            logger.warning(f"Parsing with format '{fmt}' failed ({e}); trying fallbacks...")
+            for alt in ("turtle", "xml", "nt", "n3"):
+                if alt == fmt:
+                    continue
+                try:
+                    g.parse(source=io.BytesIO(data), format=alt)
+                    logger.info(f"Parsed RDF using fallback format '{alt}'")
+                    break
+                except Exception:
+                    continue
+            else:
+                raise
+    else:
+        g.parse(skos_url)
+
     mappings = {}
     
     # Query for concepts with English preferred labels and English alternative labels
@@ -132,7 +203,7 @@ if __name__ == "__main__":
     )
     parser.add_argument("--input_csv", required=True, help="Path to input CSV file")
     parser.add_argument("--columns", nargs='+', required=True, help="List of columns to find alternatives for")
-    parser.add_argument("--skos", required=True, help="Path to SKOS RDF file")
+    parser.add_argument("--skos", required=True, help="URL to SKOS RDF (plain, .gz, or .zip)")
     parser.add_argument("--output_csv", required=True, help="Output CSV file")
     parser.add_argument("--suffix", default="alternative", help="Suffix for alternative column names (default: 'alternative')")
     parser.add_argument("--log_level", default="INFO", help="Logging level (DEBUG, INFO, WARNING, ERROR)")
@@ -146,7 +217,7 @@ if __name__ == "__main__":
     
     try:
         # Load SKOS mappings
-        logger.info("Loading SKOS mappings...")
+        logger.info("Loading SKOS mappings... this may take a while for large files.")
         mappings = load_skos_mappings(args.skos)
         logger.info(f"Loaded {len(mappings)} term mappings")
         
