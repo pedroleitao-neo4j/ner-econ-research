@@ -188,8 +188,7 @@ MERGE (d)-[:HAS_EXCERPT]->(x)
 
 // Link optional entities to the excerpt via MENTIONED_IN
 FOREACH (i IN range(0, size(per_list) - 1) |
-  WITH per_list[i] AS per, i, x, file, title, page_int, d, s_type, o_type, rel_lc, s_key, o_key, textBlock, effect_size, avg_confidence, s_text, o_text, doc_key, excerpt_key, per_list, org_list, loc_list, affiliation_text, author_text, page
-  {', '.join([f"{col}_alt_list" for col in self.args.add_alternative_columns or []])}
+  WITH per_list[i] AS per, i, x, file, title, page_int, d, s_type, o_type, rel_lc, s_key, o_key, textBlock, effect_size, avg_confidence, s_text, o_text, doc_key, excerpt_key, per_list, org_list, loc_list, affiliation_text, author_text, page{ (", " + ", ".join([f"{col}_alt_list" for col in self.args.add_alternative_columns])) if self.args.add_alternative_columns else "" }
   MERGE (pr:Person {{unique_key: 'person|' + toLower(per)}})
     ON CREATE SET
       pr.file = file,
@@ -202,8 +201,7 @@ FOREACH (i IN range(0, size(per_list) - 1) |
   {per_alt_cypher}
 )
 FOREACH (i IN range(0, size(org_list) - 1) |
-  WITH org_list[i] AS org, i, x, file, title, page_int, d, s_type, o_type, rel_lc, s_key, o_key, textBlock, effect_size, avg_confidence, s_text, o_text, doc_key, excerpt_key, per_list, org_list, loc_list, affiliation_text, author_text, page
-  {', '.join([f"{col}_alt_list" for col in self.args.add_alternative_columns or []])}
+  WITH org_list[i] AS org, i, x, file, title, page_int, d, s_type, o_type, rel_lc, s_key, o_key, textBlock, effect_size, avg_confidence, s_text, o_text, doc_key, excerpt_key, per_list, org_list, loc_list, affiliation_text, author_text, page{ (", " + ", ".join([f"{col}_alt_list" for col in self.args.add_alternative_columns])) if self.args.add_alternative_columns else "" }
   MERGE (g:Organization {{unique_key: 'organization|' + toLower(org)}})
     ON CREATE SET
       g.file = file,
@@ -216,8 +214,7 @@ FOREACH (i IN range(0, size(org_list) - 1) |
   {org_alt_cypher}
 )
 FOREACH (i IN range(0, size(loc_list) - 1) |
-  WITH loc_list[i] AS loc, i, x, file, title, page_int, d, s_type, o_type, rel_lc, s_key, o_key, textBlock, effect_size, avg_confidence, s_text, o_text, doc_key, excerpt_key, per_list, org_list, loc_list, affiliation_text, author_text, page
-  {', '.join([f"{col}_alt_list" for col in self.args.add_alternative_columns or []])}
+  WITH loc_list[i] AS loc, i, x, file, title, page_int, d, s_type, o_type, rel_lc, s_key, o_key, textBlock, effect_size, avg_confidence, s_text, o_text, doc_key, excerpt_key, per_list, org_list, loc_list, affiliation_text, author_text, page{ (", " + ", ".join([f"{col}_alt_list" for col in self.args.add_alternative_columns])) if self.args.add_alternative_columns else "" }
   MERGE (l:Location {{unique_key: 'location|' + toLower(loc)}})
     ON CREATE SET
       l.file = file,
