@@ -186,47 +186,6 @@ MERGE (x:Excerpt {{excerpt_key: excerpt_key}})
 
 MERGE (d)-[:HAS_EXCERPT]->(x)
 
-// Link optional entities to the excerpt via MENTIONED_IN
-FOREACH (i IN range(0, size(per_list) - 1) |
-  WITH per_list[i] AS per, i, x, file, title, page_int, d, s_type, o_type, rel_lc, s_key, o_key, textBlock, effect_size, avg_confidence, s_text, o_text, doc_key, excerpt_key, per_list, org_list, loc_list, affiliation_text, author_text, page{ (", " + ", ".join([f"{col}_alt_list" for col in self.args.add_alternative_columns])) if self.args.add_alternative_columns else "" }
-  MERGE (pr:Person {{unique_key: 'person|' + toLower(per)}})
-    ON CREATE SET
-      pr.file = file,
-      pr.title = per,
-      pr.text = per,
-      pr.type = 'person',
-      pr.page = page_int
-  MERGE (pr)-[mpr:MENTIONED_IN]->(x)
-    ON CREATE SET mpr.file = file, mpr.title = title, mpr.page = page_int
-  {per_alt_cypher}
-)
-FOREACH (i IN range(0, size(org_list) - 1) |
-  WITH org_list[i] AS org, i, x, file, title, page_int, d, s_type, o_type, rel_lc, s_key, o_key, textBlock, effect_size, avg_confidence, s_text, o_text, doc_key, excerpt_key, per_list, org_list, loc_list, affiliation_text, author_text, page{ (", " + ", ".join([f"{col}_alt_list" for col in self.args.add_alternative_columns])) if self.args.add_alternative_columns else "" }
-  MERGE (g:Organization {{unique_key: 'organization|' + toLower(org)}})
-    ON CREATE SET
-      g.file = file,
-      g.title = org,
-      g.text = org,
-      g.type = 'organization',
-      g.page = page_int
-  MERGE (g)-[mg:MENTIONED_IN]->(x)
-    ON CREATE SET mg.file = file, mg.title = title, mg.page = page_int
-  {org_alt_cypher}
-)
-FOREACH (i IN range(0, size(loc_list) - 1) |
-  WITH loc_list[i] AS loc, i, x, file, title, page_int, d, s_type, o_type, rel_lc, s_key, o_key, textBlock, effect_size, avg_confidence, s_text, o_text, doc_key, excerpt_key, per_list, org_list, loc_list, affiliation_text, author_text, page{ (", " + ", ".join([f"{col}_alt_list" for col in self.args.add_alternative_columns])) if self.args.add_alternative_columns else "" }
-  MERGE (l:Location {{unique_key: 'location|' + toLower(loc)}})
-    ON CREATE SET
-      l.file = file,
-      l.title = loc,
-      l.text = loc,
-      l.type = 'location',
-      l.page = page_int
-  MERGE (l)-[ml:MENTIONED_IN]->(x)
-    ON CREATE SET ml.file = file, ml.title = title, ml.page = page_int
-  {loc_alt_cypher}
-)
-// Affiliation and Author unchanged
 FOREACH (_ IN CASE WHEN affiliation_text <> '' THEN [1] ELSE [] END |
   MERGE (af:Affiliation {{unique_key: affiliation_key}})
     ON CREATE SET
