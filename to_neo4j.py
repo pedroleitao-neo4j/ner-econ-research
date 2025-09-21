@@ -10,7 +10,7 @@ class CypherFromTripletsWithFTS:
 
     Expected CSV columns:
       file,title,subject_text,subject_type,relation,object_text,object_type,effect_size,avg_confidence,textBlock,page,
-      per,org,loc,affiliation,author
+      per,org,loc
     """
 
     def __init__(self, args):
@@ -70,8 +70,6 @@ CREATE CONSTRAINT IF NOT EXISTS FOR (e:Excerpt)      REQUIRE e.excerpt_key IS UN
 CREATE CONSTRAINT IF NOT EXISTS FOR (pr:Person)        REQUIRE pr.unique_key IS UNIQUE;
 CREATE CONSTRAINT IF NOT EXISTS FOR (g:Organization)   REQUIRE g.unique_key IS UNIQUE;
 CREATE CONSTRAINT IF NOT EXISTS FOR (l:Location)       REQUIRE l.unique_key IS UNIQUE;
-CREATE CONSTRAINT IF NOT EXISTS FOR (af:Affiliation)   REQUIRE af.unique_key IS UNIQUE;
-CREATE CONSTRAINT IF NOT EXISTS FOR (au:Author)        REQUIRE au.unique_key IS UNIQUE;
 
 /// ---- Full-text indexes (Neo4j 5 syntax) ----
 CREATE FULLTEXT INDEX intervention_text_fts IF NOT EXISTS
@@ -111,14 +109,6 @@ CREATE FULLTEXT INDEX location_text_fts IF NOT EXISTS
 FOR (l:Location) ON EACH [l.text]
 OPTIONS {{ indexConfig: {{ `fulltext.analyzer`: 'english', `fulltext.eventually_consistent`: true }} }};
 
-CREATE FULLTEXT INDEX affiliation_text_fts IF NOT EXISTS
-FOR (af:Affiliation) ON EACH [af.text]
-OPTIONS {{ indexConfig: {{ `fulltext.analyzer`: 'english', `fulltext.eventually_consistent`: true }} }};
-
-CREATE FULLTEXT INDEX author_text_fts IF NOT EXISTS
-FOR (au:Author) ON EACH [au.text]
-OPTIONS {{ indexConfig: {{ `fulltext.analyzer`: 'english', `fulltext.eventually_consistent`: true }} }};
-
 /// ---- Param for the CSV file name ----
 :param csvFile => '{self.args.csv_basename}';
 
@@ -143,14 +133,12 @@ WITH
   // New optional entity fields
   trim(coalesce(row.per,''))          AS per_text,
   trim(coalesce(row.org,''))          AS org_text,
-  trim(coalesce(row.loc,''))          AS loc_text,
-  trim(coalesce(row.affiliation,''))  AS affiliation_text,
-  trim(coalesce(row.author,''))       AS author_text
+  trim(coalesce(row.loc,''))          AS loc_text
   {',' if self.args.add_alternative_columns else ''}{''.join(alt_cols_cypher).rstrip(',')}
 
 WITH
   row, s_type, o_type, rel_lc, s_text, o_text, file, title, textBlock, effect_size, page, avg_confidence,
-  per_text, org_text, loc_text, affiliation_text, author_text,
+  per_text, org_text, loc_text,
   { ''.join([f"{col}_alt_text, " for col in self.args.add_alternative_columns or []]) }
   CASE
     WHEN page = '' THEN NULL
@@ -163,11 +151,7 @@ WITH
   // New entity lists (split on ';' and trim; ignore empty parts)
   CASE WHEN per_text = '' THEN [] ELSE [t IN split(per_text, ';') WHERE trim(t) <> '' | trim(t)] END AS per_list,
   CASE WHEN org_text = '' THEN [] ELSE [t IN split(org_text, ';') WHERE trim(t) <> '' | trim(t)] END AS org_list,
-  CASE WHEN loc_text = '' THEN [] ELSE [t IN split(loc_text, ';') WHERE trim(t) <> '' | trim(t)] END AS loc_list,
-  {''.join(alt_lists_cypher)}
-  // Keep single-value keys for others
-  CASE WHEN affiliation_text <> '' THEN 'affiliation|'  + toLower(affiliation_text) ELSE NULL END AS affiliation_key,
-  CASE WHEN author_text      <> '' THEN 'author|'       + toLower(author_text)      ELSE NULL END AS author_key
+  CASE WHEN loc_text = '' THEN [] ELSE [t IN split(loc_text, ';') WHERE trim(t) <> '' | trim(t)] END AS loc_list{',' if self.args.add_alternative_columns else ''}{''.join(alt_lists_cypher).rstrip(',')}
 
 // Document & Excerpt (provenance)
 MERGE (d:Document {{doc_key: doc_key}})
@@ -185,30 +169,6 @@ MERGE (x:Excerpt {{excerpt_key: excerpt_key}})
     x.page = page_int
 
 MERGE (d)-[:HAS_EXCERPT]->(x)
-
-FOREACH (_ IN CASE WHEN affiliation_text <> '' THEN [1] ELSE [] END |
-  MERGE (af:Affiliation {{unique_key: affiliation_key}})
-    ON CREATE SET
-      af.file = file,
-      af.title = affiliation_text,
-      af.text = affiliation_text,
-      af.type = 'affiliation',
-      af.page = page_int
-  MERGE (af)-[maf:MENTIONED_IN]->(x)
-    ON CREATE SET maf.file = file, maf.title = title, maf.page = page_int
-)
-
-FOREACH (_ IN CASE WHEN author_text <> '' THEN [1] ELSE [] END |
-  MERGE (au:Author {{unique_key: author_key}})
-    ON CREATE SET
-      au.file = file,
-      au.title = author_text,
-      au.text = author_text,
-      au.type = 'author',
-      au.page = page_int
-  MERGE (au)-[mau:MENTIONED_IN]->(x)
-    ON CREATE SET mau.file = file, mau.title = title, mau.page = page_int
-)
 
 // Persons, Organizations, Locations extracted from lists
 FOREACH (i IN CASE WHEN size(per_list) > 0 THEN range(0, size(per_list)-1) ELSE [] END |
@@ -335,6 +295,46 @@ FOREACH (_ IN CASE WHEN rel_lc = 'impacts' THEN [1] ELSE [] END |
       r.effect_size = CASE WHEN effect_size = '' THEN NULL ELSE effect_size END,
       r.avg_confidence = avg_confidence,
       r.file = file,
+      r.title = title,
+      r.page = page_int
+)
+FOREACH (_ IN CASE WHEN rel_lc = 'applies_to' THEN [1] ELSE [] END |
+  MERGE (s)-[r:APPLIES_TO]->(o)
+    ON CREATE SET
+      r.effect_size = CASE WHEN effect_size = '' THEN NULL ELSE effect_size END,
+      r.avg_confidence = avg_confidence, r.file = file, r.title = title,
+      r.page = page_int
+)
+FOREACH (_ IN CASE WHEN rel_lc = 'experienced_by' THEN [1] ELSE [] END |
+  MERGE (s)-[r:EXPERIENCED_BY]->(o)
+    ON CREATE SET
+      r.effect_size = CASE WHEN effect_size = '' THEN NULL ELSE effect_size END,
+      r.avg_confidence = avg_confidence, r.file = file, r.title = title,
+      r.page = page_int
+);
+"""
+
+    def generate(self) -> None:
+        self.args.csv_basename = os.path.basename(self.args.input_csv)
+        with open(self.args.output_cypher, "w", encoding="utf-8") as f:
+            f.write(self._script())
+
+if __name__ == "__main__":
+    parser = argparse.ArgumentParser(description="""
+        Generate a Cypher import script (with Neo4j 5 full-text indexes) from a triplets CSV.
+        Usage:
+          python cypher_from_triplets_fts.py --input_csv triplets.csv --output_cypher import_triplets.cypher
+    """.strip())
+    parser.add_argument("--input_csv", type=str, required=True, help="Path to the triplets CSV.")
+    parser.add_argument("--output_cypher", type=str, default="import_triplets.cypher", help="Output Cypher script path.")
+    parser.add_argument("--alternative_suffix", type=str, required=False, default="_alternative", help="Suffix for alternative column names (default: '_alternative').")
+    parser.add_argument("--add_alternative_columns", type=str, required=False, nargs='+', help="List of columns to add alternatives columns for (optional).")
+    parser.add_argument("--alternative_relationship_type", type=str, required=False, default="HAS_ALTERNATIVE", help="Relationship type for alternatives (default: 'HAS_ALTERNATIVE').")
+    args = parser.parse_args()
+
+    gen = CypherFromTripletsWithFTS(args)
+    gen.generate()
+    print(f"Wrote {args.output_cypher}. Copy {os.path.basename(args.input_csv)} to Neo4j import/ and run the script.")
       r.title = title,
       r.page = page_int
 )
