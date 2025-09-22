@@ -18,16 +18,19 @@ class CypherFromTripletsWithFTS:
 
     def _script(self) -> str:
         # Note: Double braces {{ }} are used to emit single { } into the Cypher output from an f-string.
-
         alt_cols_cypher = []
+        alt_tax_cols_cypher = []
         if self.args.add_alternative_columns:
             for col in self.args.add_alternative_columns:
                 alt_cols_cypher.append(f"  trim(coalesce(row.{col}{self.args.alternative_suffix},'')) AS {col}_alt_text,")
+                alt_tax_cols_cypher.append(f"  trim(coalesce(row.{col}{self.args.alternative_suffix}_taxonomy,'')) AS {col}_alt_tax_text,")
 
         alt_lists_cypher = []
+        alt_tax_lists_cypher = []
         if self.args.add_alternative_columns:
             for col in self.args.add_alternative_columns:
                 alt_lists_cypher.append(f"  CASE WHEN {col}_alt_text = '' THEN [] ELSE [t IN split({col}_alt_text, ';') | trim(t)] END AS {col}_alt_list,")
+                alt_tax_lists_cypher.append(f"  CASE WHEN {col}_alt_tax_text = '' THEN [] ELSE [t IN split({col}_alt_tax_text, ';') | trim(t)] END AS {col}_alt_tax_list,")
 
         per_alt_cypher = ""
         if self.args.add_alternative_columns and 'per' in self.args.add_alternative_columns:
@@ -36,6 +39,21 @@ class CypherFromTripletsWithFTS:
     MERGE (alt_pr:Person {{unique_key: 'person|' + toLower(alt_per)}})
       ON CREATE SET alt_pr.file = file, alt_pr.title = alt_per, alt_pr.text = alt_per, alt_pr.type = 'person', alt_pr.page = page_int
     MERGE (pr)-[:{self.args.alternative_relationship_type}]->(alt_pr)
+    // Taxonomy chain for this alternative person
+    FOREACH (tax_path IN CASE WHEN size(per_alt_tax_list) > i AND per_alt_tax_list[i] <> '' THEN [per_alt_tax_list[i]] ELSE [] END |
+      WITH alt_pr, tax_path
+      WITH alt_pr, [lv IN split(tax_path, '->') WHERE trim(lv) <> '' | trim(lv)] AS levels
+      FOREACH (_ IN CASE WHEN size(levels) > 0 THEN [1] ELSE [] END |
+        MERGE (t0:Taxon {{unique_key: 'taxon|' + toLower(levels[0])}})
+          ON CREATE SET t0.title = levels[0]
+        MERGE (alt_pr)-[:{self.args.taxonomic_relationship}]->(t0)
+      )
+      FOREACH (idx IN CASE WHEN size(levels) > 1 THEN range(0, size(levels)-2) ELSE [] END |
+        MERGE (c:Taxon {{unique_key: 'taxon|' + toLower(levels[idx])}})
+        MERGE (p:Taxon {{unique_key: 'taxon|' + toLower(levels[idx+1])}})
+        MERGE (c)-[:{self.args.taxonomic_relationship}]->(p)
+      )
+    )
   )"""
 
         org_alt_cypher = ""
@@ -45,6 +63,21 @@ class CypherFromTripletsWithFTS:
     MERGE (alt_g:Organization {{unique_key: 'organization|' + toLower(alt_org)}})
       ON CREATE SET alt_g.file = file, alt_g.title = alt_org, alt_g.text = alt_org, alt_g.type = 'organization', alt_g.page = page_int
     MERGE (g)-[:{self.args.alternative_relationship_type}]->(alt_g)
+    // Taxonomy chain for this alternative organization
+    FOREACH (tax_path IN CASE WHEN size(org_alt_tax_list) > i AND org_alt_tax_list[i] <> '' THEN [org_alt_tax_list[i]] ELSE [] END |
+      WITH alt_g, tax_path
+      WITH alt_g, [lv IN split(tax_path, '->') WHERE trim(lv) <> '' | trim(lv)] AS levels
+      FOREACH (_ IN CASE WHEN size(levels) > 0 THEN [1] ELSE [] END |
+        MERGE (t0:Taxon {{unique_key: 'taxon|' + toLower(levels[0])}})
+          ON CREATE SET t0.title = levels[0]
+        MERGE (alt_g)-[:{self.args.taxonomic_relationship}]->(t0)
+      )
+      FOREACH (idx IN CASE WHEN size(levels) > 1 THEN range(0, size(levels)-2) ELSE [] END |
+        MERGE (c:Taxon {{unique_key: 'taxon|' + toLower(levels[idx])}})
+        MERGE (p:Taxon {{unique_key: 'taxon|' + toLower(levels[idx+1])}})
+        MERGE (c)-[:{self.args.taxonomic_relationship}]->(p)
+      )
+    )
   )"""
 
         loc_alt_cypher = ""
@@ -54,35 +87,108 @@ class CypherFromTripletsWithFTS:
     MERGE (alt_l:Location {{unique_key: 'location|' + toLower(alt_loc)}})
       ON CREATE SET alt_l.file = file, alt_l.title = alt_loc, alt_l.text = alt_loc, alt_l.type = 'location', alt_l.page = page_int
     MERGE (l)-[:{self.args.alternative_relationship_type}]->(alt_l)
+    // Taxonomy chain for this alternative location
+    FOREACH (tax_path IN CASE WHEN size(loc_alt_tax_list) > i AND loc_alt_tax_list[i] <> '' THEN [loc_alt_tax_list[i]] ELSE [] END |
+      WITH alt_l, tax_path
+      WITH alt_l, [lv IN split(tax_path, '->') WHERE trim(lv) <> '' | trim(lv)] AS levels
+      FOREACH (_ IN CASE WHEN size(levels) > 0 THEN [1] ELSE [] END |
+        MERGE (t0:Taxon {{unique_key: 'taxon|' + toLower(levels[0])}})
+          ON CREATE SET t0.title = levels[0]
+        MERGE (alt_l)-[:{self.args.taxonomic_relationship}]->(t0)
+      )
+      FOREACH (idx IN CASE WHEN size(levels) > 1 THEN range(0, size(levels)-2) ELSE [] END |
+        MERGE (c:Taxon {{unique_key: 'taxon|' + toLower(levels[idx])}})
+        MERGE (p:Taxon {{unique_key: 'taxon|' + toLower(levels[idx+1])}})
+        MERGE (c)-[:{self.args.taxonomic_relationship}]->(p)
+      )
+    )
   )"""
 
         # Subject alternatives plumbing
         subject_alt_with = ""
         subject_alt_block = ""
         if self.args.add_alternative_columns and 'subject_text' in self.args.add_alternative_columns:
-            subject_alt_with = ", subject_text_alt_list"
+            subject_alt_with = ", subject_text_alt_list, subject_text_alt_tax_list"
             subject_alt_block = f"""
 // Subject alternatives from subject_text alternative list
-FOREACH (alt IN CASE WHEN size(subject_text_alt_list) > 0 THEN subject_text_alt_list ELSE [] END |
+FOREACH (i IN CASE WHEN size(subject_text_alt_list) > 0 THEN range(0, size(subject_text_alt_list)-1) ELSE [] END |
+  WITH i, subject_text_alt_list, subject_text_alt_tax_list, s, s_type, file, page_int
+  WITH s, s_type, file, page_int, subject_text_alt_list[i] AS alt, subject_text_alt_tax_list AS tax_list, i AS idx
   FOREACH (_ IN CASE WHEN s_type = 'intervention' THEN [1] ELSE [] END |
     MERGE (alt_s:Intervention {{unique_key: 'intervention|' + toLower(alt)}})
       ON CREATE SET alt_s.file = file, alt_s.title = alt, alt_s.text = alt, alt_s.type = 'intervention', alt_s.page = page_int
     MERGE (s)-[:{self.args.alternative_relationship_type}]->(alt_s)
+    FOREACH (tax_path IN CASE WHEN size(tax_list) > idx AND tax_list[idx] <> '' THEN [tax_list[idx]] ELSE [] END |
+      WITH alt_s, tax_path
+      WITH alt_s, [lv IN split(tax_path, '->') WHERE trim(lv) <> '' | trim(lv)] AS levels
+      FOREACH (__ IN CASE WHEN size(levels) > 0 THEN [1] ELSE [] END |
+        MERGE (t0:Taxon {{unique_key: 'taxon|' + toLower(levels[0])}})
+          ON CREATE SET t0.title = levels[0]
+        MERGE (alt_s)-[:{self.args.taxonomic_relationship}]->(t0)
+      )
+      FOREACH (j IN CASE WHEN size(levels) > 1 THEN range(0, size(levels)-2) ELSE [] END |
+        MERGE (c:Taxon {{unique_key: 'taxon|' + toLower(levels[j])}})
+        MERGE (p:Taxon {{unique_key: 'taxon|' + toLower(levels[j+1])}})
+        MERGE (c)-[:{self.args.taxonomic_relationship}]->(p)
+      )
+    )
   )
   FOREACH (_ IN CASE WHEN s_type = 'outcome' THEN [1] ELSE [] END |
     MERGE (alt_s:Outcome {{unique_key: 'outcome|' + toLower(alt)}})
       ON CREATE SET alt_s.file = file, alt_s.title = alt, alt_s.text = alt, alt_s.type = 'outcome', alt_s.page = page_int
     MERGE (s)-[:{self.args.alternative_relationship_type}]->(alt_s)
+    FOREACH (tax_path IN CASE WHEN size(tax_list) > idx AND tax_list[idx] <> '' THEN [tax_list[idx]] ELSE [] END |
+      WITH alt_s, tax_path
+      WITH alt_s, [lv IN split(tax_path, '->') WHERE trim(lv) <> '' | trim(lv)] AS levels
+      FOREACH (__ IN CASE WHEN size(levels) > 0 THEN [1] ELSE [] END |
+        MERGE (t0:Taxon {{unique_key: 'taxon|' + toLower(levels[0])}})
+          ON CREATE SET t0.title = levels[0]
+        MERGE (alt_s)-[:{self.args.taxonomic_relationship}]->(t0)
+      )
+      FOREACH (j IN CASE WHEN size(levels) > 1 THEN range(0, size(levels)-2) ELSE [] END |
+        MERGE (c:Taxon {{unique_key: 'taxon|' + toLower(levels[j])}})
+        MERGE (p:Taxon {{unique_key: 'taxon|' + toLower(levels[j+1])}})
+        MERGE (c)-[:{self.args.taxonomic_relationship}]->(p)
+      )
+    )
   )
   FOREACH (_ IN CASE WHEN s_type = 'population' THEN [1] ELSE [] END |
     MERGE (alt_s:Population {{unique_key: 'population|' + toLower(alt)}})
       ON CREATE SET alt_s.file = file, alt_s.title = alt, alt_s.text = alt, alt_s.type = 'population', alt_s.page = page_int
     MERGE (s)-[:{self.args.alternative_relationship_type}]->(alt_s)
+    FOREACH (tax_path IN CASE WHEN size(tax_list) > idx AND tax_list[idx] <> '' THEN [tax_list[idx]] ELSE [] END |
+      WITH alt_s, tax_path
+      WITH alt_s, [lv IN split(tax_path, '->') WHERE trim(lv) <> '' | trim(lv)] AS levels
+      FOREACH (__ IN CASE WHEN size(levels) > 0 THEN [1] ELSE [] END |
+        MERGE (t0:Taxon {{unique_key: 'taxon|' + toLower(levels[0])}})
+          ON CREATE SET t0.title = levels[0]
+        MERGE (alt_s)-[:{self.args.taxonomic_relationship}]->(t0)
+      )
+      FOREACH (j IN CASE WHEN size(levels) > 1 THEN range(0, size(levels)-2) ELSE [] END |
+        MERGE (c:Taxon {{unique_key: 'taxon|' + toLower(levels[j])}})
+        MERGE (p:Taxon {{unique_key: 'taxon|' + toLower(levels[j+1])}})
+        MERGE (c)-[:{self.args.taxonomic_relationship}]->(p)
+      )
+    )
   )
   FOREACH (_ IN CASE WHEN s_type = 'coreference' THEN [1] ELSE [] END |
     MERGE (alt_s:Coreference {{unique_key: 'coreference|' + toLower(alt)}})
       ON CREATE SET alt_s.file = file, alt_s.title = alt, alt_s.text = alt, alt_s.type = 'coreference', alt_s.page = page_int
     MERGE (s)-[:{self.args.alternative_relationship_type}]->(alt_s)
+    FOREACH (tax_path IN CASE WHEN size(tax_list) > idx AND tax_list[idx] <> '' THEN [tax_list[idx]] ELSE [] END |
+      WITH alt_s, tax_path
+      WITH alt_s, [lv IN split(tax_path, '->') WHERE trim(lv) <> '' | trim(lv)] AS levels
+      FOREACH (__ IN CASE WHEN size(levels) > 0 THEN [1] ELSE [] END |
+        MERGE (t0:Taxon {{unique_key: 'taxon|' + toLower(levels[0])}})
+          ON CREATE SET t0.title = levels[0]
+        MERGE (alt_s)-[:{self.args.taxonomic_relationship}]->(t0)
+      )
+      FOREACH (j IN CASE WHEN size(levels) > 1 THEN range(0, size(levels)-2) ELSE [] END |
+        MERGE (c:Taxon {{unique_key: 'taxon|' + toLower(levels[j])}})
+        MERGE (p:Taxon {{unique_key: 'taxon|' + toLower(levels[j+1])}})
+        MERGE (c)-[:{self.args.taxonomic_relationship}]->(p)
+      )
+    )
   )
 )
 """
@@ -101,6 +207,8 @@ CREATE CONSTRAINT IF NOT EXISTS FOR (e:Excerpt)      REQUIRE e.excerpt_key IS UN
 CREATE CONSTRAINT IF NOT EXISTS FOR (pr:Person)        REQUIRE pr.unique_key IS UNIQUE;
 CREATE CONSTRAINT IF NOT EXISTS FOR (g:Organization)   REQUIRE g.unique_key IS UNIQUE;
 CREATE CONSTRAINT IF NOT EXISTS FOR (l:Location)       REQUIRE l.unique_key IS UNIQUE;
+// Taxonomy constraints
+CREATE CONSTRAINT IF NOT EXISTS FOR (t:Taxon)          REQUIRE t.unique_key IS UNIQUE;
 
 /// ---- Full-text indexes (Neo4j 5 syntax) ----
 CREATE FULLTEXT INDEX intervention_text_fts IF NOT EXISTS
@@ -165,12 +273,12 @@ WITH
   trim(coalesce(row.per,''))          AS per_text,
   trim(coalesce(row.org,''))          AS org_text,
   trim(coalesce(row.loc,''))          AS loc_text
-  {',' if self.args.add_alternative_columns else ''}{''.join(alt_cols_cypher).rstrip(',')}
+  {',' if self.args.add_alternative_columns else ''}{(''.join(alt_cols_cypher) + ''.join(alt_tax_cols_cypher)).rstrip(',')}
 
 WITH
   row, s_type, o_type, rel_lc, s_text, o_text, file, title, textBlock, effect_size, page, avg_confidence,
   per_text, org_text, loc_text,
-  { ''.join([f"{col}_alt_text, " for col in self.args.add_alternative_columns or []]) }
+  { ''.join([f"{col}_alt_text, " for col in self.args.add_alternative_columns or []]) }{ ''.join([f"{col}_alt_tax_text, " for col in self.args.add_alternative_columns or []]) }
   CASE
     WHEN page = '' THEN NULL
     ELSE toInteger(page)
@@ -182,7 +290,7 @@ WITH
   // New entity lists (split on ';' and trim; ignore empty parts)
   CASE WHEN per_text = '' THEN [] ELSE [t IN split(per_text, ';') WHERE trim(t) <> '' | trim(t)] END AS per_list,
   CASE WHEN org_text = '' THEN [] ELSE [t IN split(org_text, ';') WHERE trim(t) <> '' | trim(t)] END AS org_list,
-  CASE WHEN loc_text = '' THEN [] ELSE [t IN split(loc_text, ';') WHERE trim(t) <> '' | trim(t)] END AS loc_list{',' if self.args.add_alternative_columns else ''}{''.join(alt_lists_cypher).rstrip(',')}
+  CASE WHEN loc_text = '' THEN [] ELSE [t IN split(loc_text, ';') WHERE trim(t) <> '' | trim(t)] END AS loc_list{',' if self.args.add_alternative_columns else ''}{(''.join(alt_lists_cypher) + ''.join(alt_tax_lists_cypher)).rstrip(',')}
 
 // Document & Excerpt (provenance)
 MERGE (d:Document {{doc_key: doc_key}})
@@ -363,6 +471,7 @@ if __name__ == "__main__":
     parser.add_argument("--alternative_suffix", type=str, required=False, default="_alternative", help="Suffix for alternative column names (default: '_alternative').")
     parser.add_argument("--add_alternative_columns", type=str, required=False, nargs='+', help="List of columns to add alternatives columns for (optional).")
     parser.add_argument("--alternative_relationship_type", type=str, required=False, default="HAS_ALTERNATIVE", help="Relationship type for alternatives (default: 'HAS_ALTERNATIVE').")
+    parser.add_argument("--taxonomic_relationship", type=str, required=False, default="IN_TAXONOMY", help="Relationship type to link taxonomy (default: 'IN_TAXONOMY').")
     args = parser.parse_args()
 
     gen = CypherFromTripletsWithFTS(args)
