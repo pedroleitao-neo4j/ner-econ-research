@@ -166,34 +166,56 @@ def build_taxonomy_path_for_label(label: str,
                                   concept_pref_label: Dict[rdflib.term.Node, str],
                                   broader_of: Dict[rdflib.term.Node, List[rdflib.term.Node]],
                                   level_separator: str = "->",
-                                  max_depth: int = 50) -> str:
+                                  max_depth: int = 50,
+                                  path_joiner: str = " | ") -> str:
     """
     Given a label string, find a matching concept and traverse skos:broader upwards,
-    returning a string like 'level1 > level2 > ... > root'.
+    returning all possible paths as strings like 'level1 -> level2 -> ... -> root'.
+    If multiple broader parents exist, all rootward paths are returned and joined
+    by `path_joiner`. Paths are ordered deterministically.
     """
+    def _parents(n: rdflib.term.Node) -> List[rdflib.term.Node]:
+        # Deterministic parent order by label
+        return sorted(broader_of.get(n, []), key=lambda c: _label_for_concept(c, concept_pref_label))
+
+    def _collect_paths(n: rdflib.term.Node,
+                       depth: int,
+                       seen: Set[rdflib.term.Node]) -> List[List[rdflib.term.Node]]:
+        if n in seen or depth >= max_depth:
+            return [[n]]
+        parents = _parents(n)
+        if not parents:
+            return [[n]]
+        paths: List[List[rdflib.term.Node]] = []
+        new_seen = set(seen)
+        new_seen.add(n)
+        for p in parents:
+            for tail in _collect_paths(p, depth + 1, new_seen):
+                paths.append([n] + tail)
+        return paths
+
     norm = _norm(label)
     concepts = list(label_to_concepts.get(norm, []))
     if not concepts:
         return ""
-    # Deterministic choice if ambiguous
+    # Deterministic choice if ambiguous concept match
     concepts.sort(key=lambda c: _label_for_concept(c, concept_pref_label))
     node = concepts[0]
 
-    path: List[str] = []
-    seen: Set[rdflib.term.Node] = set()
-    depth = 0
-    while node is not None and node not in seen and depth < max_depth:
-        seen.add(node)
-        path.append(_label_for_concept(node, concept_pref_label))
-        parents = broader_of.get(node, [])
-        if not parents:
-            break
-        # Choose deterministically by label
-        parents_sorted = sorted(parents, key=lambda c: _label_for_concept(c, concept_pref_label))
-        node = parents_sorted[0]
-        depth += 1
+    # Collect all rootward paths
+    node_paths = _collect_paths(node, 0, set())
 
-    return level_separator.join(path)
+    # Convert to label paths and deduplicate deterministically
+    label_paths: Set[str] = set()
+    for p in node_paths:
+        labels = [_label_for_concept(n, concept_pref_label) for n in p]
+        label_paths.add(level_separator.join(labels))
+
+    if not label_paths:
+        return ""
+
+    # Sort for stable output
+    return path_joiner.join(sorted(label_paths, key=lambda s: s.casefold()))
 
 def find_alternative_terms(df: pd.DataFrame,
                            columns: List[str],

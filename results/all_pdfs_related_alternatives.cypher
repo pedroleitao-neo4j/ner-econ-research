@@ -125,8 +125,8 @@ FOREACH (i IN CASE WHEN size(per_list) > 0 THEN range(0, size(per_list)-1) ELSE 
     MERGE (alt_pr:Person {unique_key: 'person|' + toLower(alt_per)})
       ON CREATE SET alt_pr.file = file, alt_pr.title = alt_per, alt_pr.text = alt_per, alt_pr.type = 'person', alt_pr.page = page_int
     MERGE (pr)-[:ALTERNATIVE_VOCABULARY]->(alt_pr)
-    // Taxonomy chain for this alternative person
-    FOREACH (tax_path IN CASE WHEN size(per_alt_tax_list) > i AND per_alt_tax_list[i] <> '' THEN [per_alt_tax_list[i]] ELSE [] END |
+    // Taxonomy chains for this alternative person (multiple paths supported)
+    FOREACH (tax_path IN CASE WHEN size(per_alt_tax_list) > i AND per_alt_tax_list[i] <> '' THEN [tp IN split(per_alt_tax_list[i], '|') WHERE trim(tp) <> '' | trim(tp)] ELSE [] END |
       FOREACH (_ IN CASE WHEN size([lv IN split(tax_path, '->') WHERE trim(lv) <> '' | trim(lv)]) > 0 THEN [1] ELSE [] END |
         MERGE (t0:Taxon {unique_key: 'taxon|' + toLower([lv IN split(tax_path, '->') WHERE trim(lv) <> '' | trim(lv)][0])})
           ON CREATE SET t0.title = [lv IN split(tax_path, '->') WHERE trim(lv) <> '' | trim(lv)][0]
@@ -134,7 +134,9 @@ FOREACH (i IN CASE WHEN size(per_list) > 0 THEN range(0, size(per_list)-1) ELSE 
       )
       FOREACH (idx IN CASE WHEN size([lv IN split(tax_path, '->') WHERE trim(lv) <> '' | trim(lv)]) > 1 THEN range(0, size([lv IN split(tax_path, '->') WHERE trim(lv) <> '' | trim(lv)])-2) ELSE [] END |
         MERGE (c:Taxon {unique_key: 'taxon|' + toLower([lv IN split(tax_path, '->') WHERE trim(lv) <> '' | trim(lv)][idx])})
+          ON CREATE SET c.title = [lv IN split(tax_path, '->') WHERE trim(lv) <> '' | trim(lv)][idx]
         MERGE (p:Taxon {unique_key: 'taxon|' + toLower([lv IN split(tax_path, '->') WHERE trim(lv) <> '' | trim(lv)][idx+1])})
+          ON CREATE SET p.title = [lv IN split(tax_path, '->') WHERE trim(lv) <> '' | trim(lv)][idx+1]
         MERGE (c)-[:IN_TAXONOMY]->(p)
       )
     )
@@ -151,8 +153,8 @@ FOREACH (i IN CASE WHEN size(org_list) > 0 THEN range(0, size(org_list)-1) ELSE 
     MERGE (alt_g:Organization {unique_key: 'organization|' + toLower(alt_org)})
       ON CREATE SET alt_g.file = file, alt_g.title = alt_org, alt_g.text = alt_org, alt_g.type = 'organization', alt_g.page = page_int
     MERGE (g)-[:ALTERNATIVE_VOCABULARY]->(alt_g)
-    // Taxonomy chain for this alternative organization
-    FOREACH (tax_path IN CASE WHEN size(org_alt_tax_list) > i AND org_alt_tax_list[i] <> '' THEN [org_alt_tax_list[i]] ELSE [] END |
+    // Taxonomy chains for this alternative organization (multiple paths supported)
+    FOREACH (tax_path IN CASE WHEN size(org_alt_tax_list) > i AND org_alt_tax_list[i] <> '' THEN [tp IN split(org_alt_tax_list[i], '|') WHERE trim(tp) <> '' | trim(tp)] ELSE [] END |
       FOREACH (_ IN CASE WHEN size([lv IN split(tax_path, '->') WHERE trim(lv) <> '' | trim(lv)]) > 0 THEN [1] ELSE [] END |
         MERGE (t0:Taxon {unique_key: 'taxon|' + toLower([lv IN split(tax_path, '->') WHERE trim(lv) <> '' | trim(lv)][0])})
           ON CREATE SET t0.title = [lv IN split(tax_path, '->') WHERE trim(lv) <> '' | trim(lv)][0]
@@ -160,7 +162,9 @@ FOREACH (i IN CASE WHEN size(org_list) > 0 THEN range(0, size(org_list)-1) ELSE 
       )
       FOREACH (idx IN CASE WHEN size([lv IN split(tax_path, '->') WHERE trim(lv) <> '' | trim(lv)]) > 1 THEN range(0, size([lv IN split(tax_path, '->') WHERE trim(lv) <> '' | trim(lv)])-2) ELSE [] END |
         MERGE (c:Taxon {unique_key: 'taxon|' + toLower([lv IN split(tax_path, '->') WHERE trim(lv) <> '' | trim(lv)][idx])})
+          ON CREATE SET c.title = [lv IN split(tax_path, '->') WHERE trim(lv) <> '' | trim(lv)][idx]
         MERGE (p:Taxon {unique_key: 'taxon|' + toLower([lv IN split(tax_path, '->') WHERE trim(lv) <> '' | trim(lv)][idx+1])})
+          ON CREATE SET p.title = [lv IN split(tax_path, '->') WHERE trim(lv) <> '' | trim(lv)][idx+1]
         MERGE (c)-[:IN_TAXONOMY]->(p)
       )
     )
@@ -177,8 +181,8 @@ FOREACH (i IN CASE WHEN size(loc_list) > 0 THEN range(0, size(loc_list)-1) ELSE 
     MERGE (alt_l:Location {unique_key: 'location|' + toLower(alt_loc)})
       ON CREATE SET alt_l.file = file, alt_l.title = alt_loc, alt_l.text = alt_loc, alt_l.type = 'location', alt_l.page = page_int
     MERGE (l)-[:ALTERNATIVE_VOCABULARY]->(alt_l)
-    // Taxonomy chain for this alternative location
-    FOREACH (tax_path IN CASE WHEN size(loc_alt_tax_list) > i AND loc_alt_tax_list[i] <> '' THEN [loc_alt_tax_list[i]] ELSE [] END |
+    // Taxonomy chains for this alternative location (multiple paths supported)
+    FOREACH (tax_path IN CASE WHEN size(loc_alt_tax_list) > i AND loc_alt_tax_list[i] <> '' THEN [tp IN split(loc_alt_tax_list[i], '|') WHERE trim(tp) <> '' | trim(tp)] ELSE [] END |
       FOREACH (_ IN CASE WHEN size([lv IN split(tax_path, '->') WHERE trim(lv) <> '' | trim(lv)]) > 0 THEN [1] ELSE [] END |
         MERGE (t0:Taxon {unique_key: 'taxon|' + toLower([lv IN split(tax_path, '->') WHERE trim(lv) <> '' | trim(lv)][0])})
           ON CREATE SET t0.title = [lv IN split(tax_path, '->') WHERE trim(lv) <> '' | trim(lv)][0]
@@ -186,7 +190,9 @@ FOREACH (i IN CASE WHEN size(loc_list) > 0 THEN range(0, size(loc_list)-1) ELSE 
       )
       FOREACH (idx IN CASE WHEN size([lv IN split(tax_path, '->') WHERE trim(lv) <> '' | trim(lv)]) > 1 THEN range(0, size([lv IN split(tax_path, '->') WHERE trim(lv) <> '' | trim(lv)])-2) ELSE [] END |
         MERGE (c:Taxon {unique_key: 'taxon|' + toLower([lv IN split(tax_path, '->') WHERE trim(lv) <> '' | trim(lv)][idx])})
+          ON CREATE SET c.title = [lv IN split(tax_path, '->') WHERE trim(lv) <> '' | trim(lv)][idx]
         MERGE (p:Taxon {unique_key: 'taxon|' + toLower([lv IN split(tax_path, '->') WHERE trim(lv) <> '' | trim(lv)][idx+1])})
+          ON CREATE SET p.title = [lv IN split(tax_path, '->') WHERE trim(lv) <> '' | trim(lv)][idx+1]
         MERGE (c)-[:IN_TAXONOMY]->(p)
       )
     )
@@ -281,7 +287,7 @@ FOREACH (i IN CASE WHEN size(subject_text_alt_list) > 0 THEN range(0, size(subje
     MERGE (alt_s:Intervention {unique_key: 'intervention|' + toLower(subject_text_alt_list[i])})
       ON CREATE SET alt_s.file = file, alt_s.title = subject_text_alt_list[i], alt_s.text = subject_text_alt_list[i], alt_s.type = 'intervention', alt_s.page = page_int
     MERGE (s)-[:ALTERNATIVE_VOCABULARY]->(alt_s)
-    FOREACH (tax_path IN CASE WHEN size(subject_text_alt_tax_list) > i AND subject_text_alt_tax_list[i] <> '' THEN [subject_text_alt_tax_list[i]] ELSE [] END |
+    FOREACH (tax_path IN CASE WHEN size(subject_text_alt_tax_list) > i AND subject_text_alt_tax_list[i] <> '' THEN [tp IN split(subject_text_alt_tax_list[i], '|') WHERE trim(tp) <> '' | trim(tp)] ELSE [] END |
       FOREACH (__ IN CASE WHEN size([lv IN split(tax_path, '->') WHERE trim(lv) <> '' | trim(lv)]) > 0 THEN [1] ELSE [] END |
         MERGE (t0:Taxon {unique_key: 'taxon|' + toLower([lv IN split(tax_path, '->') WHERE trim(lv) <> '' | trim(lv)][0])})
           ON CREATE SET t0.title = [lv IN split(tax_path, '->') WHERE trim(lv) <> '' | trim(lv)][0]
@@ -289,7 +295,9 @@ FOREACH (i IN CASE WHEN size(subject_text_alt_list) > 0 THEN range(0, size(subje
       )
       FOREACH (j IN CASE WHEN size([lv IN split(tax_path, '->') WHERE trim(lv) <> '' | trim(lv)]) > 1 THEN range(0, size([lv IN split(tax_path, '->') WHERE trim(lv) <> '' | trim(lv)])-2) ELSE [] END |
         MERGE (c:Taxon {unique_key: 'taxon|' + toLower([lv IN split(tax_path, '->') WHERE trim(lv) <> '' | trim(lv)][j])})
+          ON CREATE SET c.title = [lv IN split(tax_path, '->') WHERE trim(lv) <> '' | trim(lv)][j]
         MERGE (p:Taxon {unique_key: 'taxon|' + toLower([lv IN split(tax_path, '->') WHERE trim(lv) <> '' | trim(lv)][j+1])})
+          ON CREATE SET p.title = [lv IN split(tax_path, '->') WHERE trim(lv) <> '' | trim(lv)][j+1]
         MERGE (c)-[:IN_TAXONOMY]->(p)
       )
     )
@@ -298,7 +306,7 @@ FOREACH (i IN CASE WHEN size(subject_text_alt_list) > 0 THEN range(0, size(subje
     MERGE (alt_s:Outcome {unique_key: 'outcome|' + toLower(subject_text_alt_list[i])})
       ON CREATE SET alt_s.file = file, alt_s.title = subject_text_alt_list[i], alt_s.text = subject_text_alt_list[i], alt_s.type = 'outcome', alt_s.page = page_int
     MERGE (s)-[:ALTERNATIVE_VOCABULARY]->(alt_s)
-    FOREACH (tax_path IN CASE WHEN size(subject_text_alt_tax_list) > i AND subject_text_alt_tax_list[i] <> '' THEN [subject_text_alt_tax_list[i]] ELSE [] END |
+    FOREACH (tax_path IN CASE WHEN size(subject_text_alt_tax_list) > i AND subject_text_alt_tax_list[i] <> '' THEN [tp IN split(subject_text_alt_tax_list[i], '|') WHERE trim(tp) <> '' | trim(tp)] ELSE [] END |
       FOREACH (__ IN CASE WHEN size([lv IN split(tax_path, '->') WHERE trim(lv) <> '' | trim(lv)]) > 0 THEN [1] ELSE [] END |
         MERGE (t0:Taxon {unique_key: 'taxon|' + toLower([lv IN split(tax_path, '->') WHERE trim(lv) <> '' | trim(lv)][0])})
           ON CREATE SET t0.title = [lv IN split(tax_path, '->') WHERE trim(lv) <> '' | trim(lv)][0]
@@ -306,7 +314,9 @@ FOREACH (i IN CASE WHEN size(subject_text_alt_list) > 0 THEN range(0, size(subje
       )
       FOREACH (j IN CASE WHEN size([lv IN split(tax_path, '->') WHERE trim(lv) <> '' | trim(lv)]) > 1 THEN range(0, size([lv IN split(tax_path, '->') WHERE trim(lv) <> '' | trim(lv)])-2) ELSE [] END |
         MERGE (c:Taxon {unique_key: 'taxon|' + toLower([lv IN split(tax_path, '->') WHERE trim(lv) <> '' | trim(lv)][j])})
+          ON CREATE SET c.title = [lv IN split(tax_path, '->') WHERE trim(lv) <> '' | trim(lv)][j]
         MERGE (p:Taxon {unique_key: 'taxon|' + toLower([lv IN split(tax_path, '->') WHERE trim(lv) <> '' | trim(lv)][j+1])})
+          ON CREATE SET p.title = [lv IN split(tax_path, '->') WHERE trim(lv) <> '' | trim(lv)][j+1]
         MERGE (c)-[:IN_TAXONOMY]->(p)
       )
     )
@@ -315,7 +325,7 @@ FOREACH (i IN CASE WHEN size(subject_text_alt_list) > 0 THEN range(0, size(subje
     MERGE (alt_s:Population {unique_key: 'population|' + toLower(subject_text_alt_list[i])})
       ON CREATE SET alt_s.file = file, alt_s.title = subject_text_alt_list[i], alt_s.text = subject_text_alt_list[i], alt_s.type = 'population', alt_s.page = page_int
     MERGE (s)-[:ALTERNATIVE_VOCABULARY]->(alt_s)
-    FOREACH (tax_path IN CASE WHEN size(subject_text_alt_tax_list) > i AND subject_text_alt_tax_list[i] <> '' THEN [subject_text_alt_tax_list[i]] ELSE [] END |
+    FOREACH (tax_path IN CASE WHEN size(subject_text_alt_tax_list) > i AND subject_text_alt_tax_list[i] <> '' THEN [tp IN split(subject_text_alt_tax_list[i], '|') WHERE trim(tp) <> '' | trim(tp)] ELSE [] END |
       FOREACH (__ IN CASE WHEN size([lv IN split(tax_path, '->') WHERE trim(lv) <> '' | trim(lv)]) > 0 THEN [1] ELSE [] END |
         MERGE (t0:Taxon {unique_key: 'taxon|' + toLower([lv IN split(tax_path, '->') WHERE trim(lv) <> '' | trim(lv)][0])})
           ON CREATE SET t0.title = [lv IN split(tax_path, '->') WHERE trim(lv) <> '' | trim(lv)][0]
@@ -323,7 +333,9 @@ FOREACH (i IN CASE WHEN size(subject_text_alt_list) > 0 THEN range(0, size(subje
       )
       FOREACH (j IN CASE WHEN size([lv IN split(tax_path, '->') WHERE trim(lv) <> '' | trim(lv)]) > 1 THEN range(0, size([lv IN split(tax_path, '->') WHERE trim(lv) <> '' | trim(lv)])-2) ELSE [] END |
         MERGE (c:Taxon {unique_key: 'taxon|' + toLower([lv IN split(tax_path, '->') WHERE trim(lv) <> '' | trim(lv)][j])})
+          ON CREATE SET c.title = [lv IN split(tax_path, '->') WHERE trim(lv) <> '' | trim(lv)][j]
         MERGE (p:Taxon {unique_key: 'taxon|' + toLower([lv IN split(tax_path, '->') WHERE trim(lv) <> '' | trim(lv)][j+1])})
+          ON CREATE SET p.title = [lv IN split(tax_path, '->') WHERE trim(lv) <> '' | trim(lv)][j+1]
         MERGE (c)-[:IN_TAXONOMY]->(p)
       )
     )
@@ -332,7 +344,7 @@ FOREACH (i IN CASE WHEN size(subject_text_alt_list) > 0 THEN range(0, size(subje
     MERGE (alt_s:Coreference {unique_key: 'coreference|' + toLower(subject_text_alt_list[i])})
       ON CREATE SET alt_s.file = file, alt_s.title = subject_text_alt_list[i], alt_s.text = subject_text_alt_list[i], alt_s.type = 'coreference', alt_s.page = page_int
     MERGE (s)-[:ALTERNATIVE_VOCABULARY]->(alt_s)
-    FOREACH (tax_path IN CASE WHEN size(subject_text_alt_tax_list) > i AND subject_text_alt_tax_list[i] <> '' THEN [subject_text_alt_tax_list[i]] ELSE [] END |
+    FOREACH (tax_path IN CASE WHEN size(subject_text_alt_tax_list) > i AND subject_text_alt_tax_list[i] <> '' THEN [tp IN split(subject_text_alt_tax_list[i], '|') WHERE trim(tp) <> '' | trim(tp)] ELSE [] END |
       FOREACH (__ IN CASE WHEN size([lv IN split(tax_path, '->') WHERE trim(lv) <> '' | trim(lv)]) > 0 THEN [1] ELSE [] END |
         MERGE (t0:Taxon {unique_key: 'taxon|' + toLower([lv IN split(tax_path, '->') WHERE trim(lv) <> '' | trim(lv)][0])})
           ON CREATE SET t0.title = [lv IN split(tax_path, '->') WHERE trim(lv) <> '' | trim(lv)][0]
@@ -340,7 +352,9 @@ FOREACH (i IN CASE WHEN size(subject_text_alt_list) > 0 THEN range(0, size(subje
       )
       FOREACH (j IN CASE WHEN size([lv IN split(tax_path, '->') WHERE trim(lv) <> '' | trim(lv)]) > 1 THEN range(0, size([lv IN split(tax_path, '->') WHERE trim(lv) <> '' | trim(lv)])-2) ELSE [] END |
         MERGE (c:Taxon {unique_key: 'taxon|' + toLower([lv IN split(tax_path, '->') WHERE trim(lv) <> '' | trim(lv)][j])})
+          ON CREATE SET c.title = [lv IN split(tax_path, '->') WHERE trim(lv) <> '' | trim(lv)][j]
         MERGE (p:Taxon {unique_key: 'taxon|' + toLower([lv IN split(tax_path, '->') WHERE trim(lv) <> '' | trim(lv)][j+1])})
+          ON CREATE SET p.title = [lv IN split(tax_path, '->') WHERE trim(lv) <> '' | trim(lv)][j+1]
         MERGE (c)-[:IN_TAXONOMY]->(p)
       )
     )
