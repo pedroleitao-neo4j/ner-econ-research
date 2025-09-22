@@ -17,6 +17,7 @@ class PDFParser:
         max_chars: int = 800,
         max_sents: int = 5,
         min_words: int = 5,
+        aggressive_dehyphenate: bool = False,
     ):
         self.pdf_dir = pdf_dir
         self.output_csv = output_csv
@@ -24,6 +25,7 @@ class PDFParser:
         self.max_chars = max_chars
         self.max_sents = max_sents
         self.min_words = min_words
+        self.aggressive_dehyphenate = aggressive_dehyphenate
 
         # Build a lean spaCy pipeline focused on sentence boundaries only
         self.nlp = spacy.blank("en")
@@ -31,10 +33,35 @@ class PDFParser:
             self.nlp.add_pipe("sentencizer")
 
     def _normalize_ws(self, text: str) -> str:
+        # first, fix words split by hyphen + newline and remove soft hyphens
+        text = self._dehyphenate(text)
         # collapse whitespace, keep single spaces, drop stray hyphen+space artifacts
         text = re.sub(r"\s+", " ", text.strip())
         # fix spaces before punctuation
         text = re.sub(r"\s+([,.;:!?])", r"\1", text)
+        return text
+
+    def _dehyphenate(self, text: str) -> str:
+        """
+        Merge words split across line breaks:
+        - 'colla-\\n teral' -> 'collateral'
+        - Remove soft hyphen characters.
+        - Also handle cases where a prior newline became spaces: 'colla- teral' -> 'collateral'
+        If aggressive_dehyphenate=True, also merge plain lowercase 'colla-teral' -> 'collateral'.
+        """
+        # remove soft hyphen and zero-width space
+        text = text.replace("\u00AD", "").replace("\u200B", "")
+
+        # case 1: letter - newline - letter (with optional spaces around newline)
+        text = re.sub(r"([A-Za-z])-\s*\r?\n\s*([A-Za-z])", r"\1\2", text)
+
+        # case 2: letter - spaces - letter (likely from a previous linebreak join)
+        text = re.sub(r"([A-Za-z])-\s+([A-Za-z])", r"\1\2", text)
+
+        # optional: case 3: plain lowercase letter-hyphen-letter (riskier; off by default)
+        if self.aggressive_dehyphenate:
+            text = re.sub(r"\b([a-z]{2,})-([a-z]{2,})\b", r"\1\2", text)
+
         return text
 
     def is_heading(self, block_text: str) -> bool:
@@ -204,7 +231,7 @@ class PDFParser:
                     print(f"Could not process {filename}: {e}")
 
 
-def main():
+if __name__ == "__main__":
     parser = argparse.ArgumentParser(
         description="Parse PDFs from a directory, sentence-chunk with spaCy, and save to a CSV."
     )
@@ -216,6 +243,11 @@ def main():
     parser.add_argument("--max_chars", type=int, default=500, help="Maximum characters per chunk.")
     parser.add_argument("--max_sents", type=int, default=5, help="Maximum sentences per chunk.")
     parser.add_argument("--min_words", type=int, default=5, help="Minimum words per chunk.")
+    parser.add_argument(
+        "--aggressive_dehyphenate",
+        action="store_true",
+        help="Also merge plain intra-word hyphens like 'colla-teral' -> 'collateral'.",
+    )
 
     args = parser.parse_args()
 
@@ -226,10 +258,7 @@ def main():
         max_chars=args.max_chars,
         max_sents=args.max_sents,
         min_words=args.min_words,
+        aggressive_dehyphenate=args.aggressive_dehyphenate,
     )
     pdf_parser.parse_pdfs()
     print(f"Processing complete. Output saved to {args.output_csv}")
-
-
-if __name__ == "__main__":
-    main()
